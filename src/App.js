@@ -14,6 +14,12 @@ const MUHASEBE_PROGRAMLARI = ['Logo', 'Netsis', 'Mikro', 'Paraşüt', 'Zirve', '
 const API_BASE = 'http://localhost:5279';
 
 const gunFarki = t => t ? Math.floor((new Date() - new Date(t)) / 86400000) : 0;
+const durumHesapla = (m) => {
+  if (m.asama === 'Kazanıldı') return 'Kazanılan';
+  if (m.asama === 'Kaybedildi') return 'Kaybedilen';
+  if (LIMITLER[m.asama] && gunFarki(m.asamaTarihi) >= LIMITLER[m.asama]) return 'Bekleyen';
+  return 'Görüşülen';
+};
 const parseSayi = s => parseFloat(String(s || '').replace(/[^\d.,]/g, '').replace(',', '.')) || 0;
 const formatPara = tutar => `${Number(tutar || 0).toLocaleString('tr-TR')} ₺`;
 
@@ -57,23 +63,96 @@ export default function App() {
     sirketUnvani: '', markaAdi: '', domain: '', email: '', telefon: '', sehir: '', temsilci: ''
   });
 
+  const [kullanici, setKullanici] = useState(() => {
+  const kayitli = localStorage.getItem('kullanici');
+  return kayitli ? JSON.parse(kayitli) : null;
+});
+const [girisForm, setGirisForm] = useState({ kullaniciAdi: '', sifre: '' });
+const [girisHata, setGirisHata] = useState('');
+const [kullanicilar, setKullanicilar] = useState([]);
+const [kullaniciFormAcik, setKullaniciFormAcik] = useState(false);
+const [yeniKullaniciForm, setYeniKullaniciForm] = useState({
+  kullaniciAdi: '', adSoyad: '', sifre: '', kullaniciTipi: 'Portal', yetki: ''
+});
+
+const girisYap = () => {
+  setGirisHata('');
+  fetch(`${API_BASE}/Login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(girisForm)
+  }).then(res => {
+    if (!res.ok) throw new Error('Kullanıcı adı veya şifre hatalı');
+    return res.json();
+  }).then(veri => {
+    localStorage.setItem('token', veri.token);
+    localStorage.setItem('kullanici', JSON.stringify(veri.kullanici));
+    setKullanici(veri.kullanici);
+  }).catch(err => setGirisHata(err.message));
+};
+
+const cikisYap = () => {
+  localStorage.removeItem('token');
+  localStorage.removeItem('kullanici');
+  setKullanici(null);
+};
+
+const kullaniciEkle = () => {
+  if (!yeniKullaniciForm.kullaniciAdi.trim() || !yeniKullaniciForm.sifre.trim()) return;
+  fetch(`${API_BASE}/Kullanicilar`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...yeniKullaniciForm, durum: 'Aktif' })
+  })
+    .then(res => res.json())
+    .then(yeniKullanici => {
+      setKullanicilar(eski => [...eski, yeniKullanici]);
+      setYeniKullaniciForm({ kullaniciAdi: '', adSoyad: '', sifre: '', kullaniciTipi: 'Portal', yetki: 'Satış Temsilcisi' });
+      setKullaniciFormAcik(false);
+    })
+    .catch(err => console.error('Kullanıcı eklenemedi:', err));
+};
+
+const kullaniciDurumDegistir = (k) => {
+  const yeniDurum = k.durum === 'Aktif' ? 'Pasif' : 'Aktif';
+  fetch(`${API_BASE}/Kullanicilar/${k.id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kullaniciAdi: k.kullaniciAdi, adSoyad: k.adSoyad, kullaniciTipi: k.kullaniciTipi, yetki: k.yetki, durum: yeniDurum, sifre: '' })
+  })
+    .then(() => setKullanicilar(eski => eski.map(x => x.id === k.id ? { ...x, durum: yeniDurum } : x)))
+    .catch(err => console.error('Durum güncellenemedi:', err));
+};
+
+const kullaniciSil = (id) => {
+  if (!window.confirm('Bu kullanıcı silinsin mi?')) return;
+  fetch(`${API_BASE}/Kullanicilar/${id}`, { method: 'DELETE' })
+    .then(() => setKullanicilar(eski => eski.filter(x => x.id !== id)))
+    .catch(err => console.error('Kullanıcı silinemedi:', err));
+};
+
+  
+
   // ── İLK YÜKLEME ──
   useEffect(() => {
     Promise.all([
       fetch(`${API_BASE}/Islemler`).then(res => res.json()),
       fetch(`${API_BASE}/Musteri`).then(res => res.json()),
       fetch(`${API_BASE}/Gorevler`).then(res => res.json()),
-      fetch(`${API_BASE}/Odemeler`).then(res => res.json())
-    ]).then(([islemlerVeri, musteriVeri, gorevlerVeri, odemelerVeri]) => {
+      fetch(`${API_BASE}/Odemeler`).then(res => res.json()),
+      fetch(`${API_BASE}/Kullanicilar`).then(res => res.json())
+    ]).then(([islemlerVeri, musteriVeri, gorevlerVeri, odemelerVeri, kullanicilarVeri]) => {
       setIslemler(islemlerVeri || []);
       setMusteriler(musteriVeri || []);
       setGorevler(gorevlerVeri || []);
       setOdemeler(odemelerVeri || []);
+      setKullanicilar(kullanicilarVeri || []);
     }).catch(err => console.error('Veriler yüklenirken hata oluştu:', err));
   }, []);
 
   // ── HESAPLANAN VERİLER & MEMO ──
   const musteriCirosu = (musteriId) => islemler.filter(i => i.musteriId === musteriId).reduce((t, i) => t + Number(i.tutar || 0), 0);
+  const toplamCiro = useMemo(() => islemler.reduce((t, i) => t + Number(i.tutar || 0), 0), [islemler]);
 
   const seciliMusteri = useMemo(() => musteriler.find(m => m.id === seciliId) || null, [musteriler, seciliId]);
   const hatirlatmalar = useMemo(() => musteriler.filter(m => LIMITLER[m.asama] && gunFarki(m.asamaTarihi) >= LIMITLER[m.asama]), [musteriler]);
@@ -117,6 +196,47 @@ export default function App() {
 
     return { ciro, hakedis, sayi: suzulen.length };
   }, [islemler, musteriler, donemFiltre]);
+
+  const [raporDonem, setRaporDonem] = useState('Son 7 Gün');
+
+  const raporMetrikleri = useMemo(() => {
+    const bugun = new Date();
+    const bugunStr = bugun.toISOString().slice(0, 10);
+    let baslangic = bugunStr;
+
+    if (raporDonem === 'Son 7 Gün') {
+      const d = new Date(bugun); d.setDate(d.getDate() - 7);
+      baslangic = d.toISOString().slice(0, 10);
+    } else if (raporDonem === 'Son 30 Gün') {
+      const d = new Date(bugun); d.setDate(d.getDate() - 30);
+      baslangic = d.toISOString().slice(0, 10);
+    } else if (raporDonem === 'Bu Ay') {
+      baslangic = new Date(bugun.getFullYear(), bugun.getMonth(), 1).toISOString().slice(0, 10);
+    }
+
+    const suzulen = odemeler.filter(o => o.tarih.slice(0, 10) >= baslangic && o.tarih.slice(0, 10) <= bugunStr);
+    const basarili = suzulen.filter(o => o.durum === 'Başarılı');
+    const basarisiz = suzulen.filter(o => o.durum === 'Başarısız');
+    const oran = suzulen.length ? Math.round(basarili.length / suzulen.length * 100) : 0;
+    const donemCiro = basarili.reduce((t, o) => t + Number(o.tutar || 0), 0);
+
+    const bankaSayaci = {};
+    suzulen.forEach(o => { bankaSayaci[o.banka] = (bankaSayaci[o.banka] || 0) + 1; });
+    const enAktifBanka = Object.entries(bankaSayaci).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+
+    return { toplam: suzulen.length, basarili: basarili.length, basarisiz: basarisiz.length, oran, donemCiro, enAktifBanka };
+  }, [odemeler, raporDonem]);
+
+  const kayitliKartlar = useMemo(() => {
+    const map = new Map();
+    odemeler.forEach(o => {
+      if (!map.has(o.kart)) {
+        const m = musteriler.find(x => x.id === o.musteriId);
+        map.set(o.kart, { kart: o.kart, kartBankasi: o.kartBankasi, kartTipi: o.kartTipi, musteri: m?.sirketUnvani || '—' });
+      }
+    });
+    return Array.from(map.values());
+  }, [odemeler, musteriler]);
 
   const ilkGorusmeTarihi = (musteriId) => {
     const tarihler = islemler.filter(i => i.musteriId === musteriId).map(i => i.tarih).sort();
@@ -243,11 +363,7 @@ const posDurumDegistir = (banka) => {
     musteriPut(seciliId, { asama: yeniAsama, asamaTarihi }).catch(err => console.error('Aşama güncellenemedi:', err));
   };
 
-  const durumDegistir = (yeniDurum) => {
-    if (!seciliMusteri || yeniDurum === seciliMusteri.durum) return;
-    setMusteriler(eski => eski.map(m => m.id === seciliId ? { ...m, durum: yeniDurum } : m));
-    musteriPut(seciliId, { durum: yeniDurum }).catch(err => console.error('Durum güncellenemedi:', err));
-  };
+
 
   const gorevEkle = () => {
     if (!yeniGorev.trim()) return;
@@ -289,6 +405,21 @@ const posDurumDegistir = (banka) => {
       .catch(err => console.error('İşlem silinemedi:', err));
   };
 
+  if (!kullanici) {
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-app)' }}>
+      <div className="crm-card" style={{ width: 320 }}>
+        <h2 style={{ marginBottom: 4 }}>Treps CRM</h2>
+        <p style={{ color: 'var(--text-muted)', marginBottom: 16, fontSize: 13 }}>Giriş yap</p>
+        <input className="form-input" placeholder="Kullanıcı adı" value={girisForm.kullaniciAdi} onChange={e => setGirisForm({ ...girisForm, kullaniciAdi: e.target.value })} style={{ marginBottom: 8 }} />
+        <input className="form-input" type="password" placeholder="Şifre" value={girisForm.sifre} onChange={e => setGirisForm({ ...girisForm, sifre: e.target.value })} onKeyDown={e => e.key === 'Enter' && girisYap()} style={{ marginBottom: 8 }} />
+        {girisHata && <p style={{ color: '#b91c1c', fontSize: 13, marginBottom: 8 }}>{girisHata}</p>}
+        <button className="new-button" onClick={girisYap} style={{ width: '100%' }}>Giriş Yap</button>
+      </div>
+    </div>
+  );
+}
+
   return (
     <div className="crm-layout">
       {/* SIDEBAR */}
@@ -300,6 +431,8 @@ const posDurumDegistir = (banka) => {
           ))}
         </nav>
       </aside>
+
+      
 
       {/* MAIN CONTENT */}
       <main className="crm-main">
@@ -329,7 +462,9 @@ const posDurumDegistir = (banka) => {
                 )}
               </div>
             )}
-            <span className="avatar">İ</span>
+            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{kullanici.adSoyad}</span>
+            <button onClick={cikisYap} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12 }}>Çıkış</button>
+            <span className="avatar">{kullanici.adSoyad?.[0] || 'İ'}</span>
           </div>
         </header>
 
@@ -346,40 +481,25 @@ const posDurumDegistir = (banka) => {
                 ))}
               </div>
               <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                <div><p className="stat-label">Toplam Ciro</p><h3>{formatPara(toplamCiro)}</h3></div>
                 <div><p className="stat-label">Dönem Cirosu</p><h3>{formatPara(donemMetrikleri.ciro)}</h3></div>
                 <div><p className="stat-label">Dönem Hakedişi</p><h3>{formatPara(donemMetrikleri.hakedis)}</h3></div>
                 <div><p className="stat-label">Dönem İşlem Sayısı</p><h3>{donemMetrikleri.sayi}</h3></div>
               </div>
             </div>
 
-            <section className="stats-grid">
-              <div className="stat-card">
-                <div className="stat-icon-wrap stat-icon-mavi"></div>
+            <div className="crm-card" style={{ margin: '0 28px 16px' }}>
+              <h3>Müşteri Özeti</h3>
+              <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 16 }}>
                 <div><p className="stat-label">Toplam Müşteri</p><h3>{musteriler.length}</h3></div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-icon-wrap stat-icon-yesil"></div>
                 <div><p className="stat-label">Aktif Müşteri</p><h3>{aktifMusteriSayisi}</h3></div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-icon-wrap stat-icon-kirmizi"></div>
                 <div><p className="stat-label">Pasif Müşteri</p><h3>{musteriler.length - aktifMusteriSayisi}</h3></div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-icon-wrap stat-icon-yesil"></div>
                 <div><p className="stat-label">Kazanılan</p><h3>{kazanilan}</h3></div>
               </div>
-              <div className="stat-card">
-                <div className="stat-icon-wrap stat-icon-kirmizi"></div>
-                <div><p className="stat-label">Hatırlatma</p><h3>{hatirlatmalar.length}</h3></div>
-              </div>
-            </section>
 
-            <div className="crm-card" style={{ margin: '0 28px 16px' }}>
-              <h3>Durum Dağılımı</h3>
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
                 {DURUMLAR.map(durum => {
-                  const sayi = musteriler.filter(m => m.durum === durum).length;
+                  const sayi = musteriler.filter(m => durumHesapla(m) === durum).length;
                   return (
                     <button
                       key={durum}
@@ -401,10 +521,10 @@ const posDurumDegistir = (banka) => {
               {secilenDurum && (
                 <div>
                   <h4 style={{ marginBottom: 8 }}>{secilenDurum} Müşteriler</h4>
-                  {musteriler.filter(m => m.durum === secilenDurum).length === 0 ? (
+                  {musteriler.filter(m => durumHesapla(m) === secilenDurum).length === 0 ? (
                     <p className="bos-mesaj">Bu durumda müşteri yok.</p>
                   ) : (
-                    musteriler.filter(m => m.durum === secilenDurum).map(m => (
+                    musteriler.filter(m => durumHesapla(m) === secilenDurum).map(m => (
                       <div key={m.id} className="task-item" style={{ flexDirection: 'column', alignItems: 'flex-start', marginBottom: 10 }}>
                         <b>{m.sirketUnvani}</b>
                         <small style={{ color: 'var(--text-muted)' }}>
@@ -436,6 +556,9 @@ const posDurumDegistir = (banka) => {
                           <b>{m.sirketUnvani}</b>
                           {LIMITLER[asama] && gunFarki(m.asamaTarihi) >= LIMITLER[asama] && <span className="uyari-badge">{gunFarki(m.asamaTarihi)} gün</span>}
                         </div>
+                        <small style={{ color: 'var(--text-muted)' }}>
+                          Durum: {m.durum || '—'} &nbsp;|&nbsp; Temsilci: {m.temsilci || '—'}
+                        </small>
                         {!!musteriCirosu(m.id) && <small style={{ color: 'var(--text-muted)' }}>{formatPara(musteriCirosu(m.id))}</small>}
                         {m.planTarihi && <small style={{ color: '#4f46e5' }}>{m.planTarihi} — {m.planNotu}</small>}
                       </div>
@@ -445,21 +568,31 @@ const posDurumDegistir = (banka) => {
               </div>
 
               <div className="crm-card" style={{ minHeight: 300 }}>
-                <h3>Görevler</h3>
+                <h3>Son Aktiviteler</h3>
                 {hatirlatmalar.map(m => (
-                  <div key={m.id} className="gorev-item uyari">
-                    <b>{m.sirketUnvani}</b> — {m.asama} aşamasında {gunFarki(m.asamaTarihi)} gündür
+                  <div
+                    key={`h-${m.id}`}
+                    className="gorev-item uyari"
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                    onClick={() => { setSeciliId(m.id); setAktifSekme('Müşteriler'); }}
+                  >
+                    <span>⏰ <b>{m.sirketUnvani}</b> — {m.asama} aşamasında</span>
+                    <span className="uyari-badge">{gunFarki(m.asamaTarihi)} gün</span>
                   </div>
                 ))}
-                {gorevler.map(g => (
-                  <div key={g.id} className={`gorev-item ${g.tamam ? 'tamam' : ''}`} onClick={() => gorevToggle(g)}>
-                    {g.tamam ? '☑' : '☐'} {g.metin}
-                  </div>
-                ))}
-                <div className="note-input" style={{ marginTop: 12 }}>
-                  <input className="form-input" placeholder="Yeni görev..." value={yeniGorev} onChange={e => setYeniGorev(e.target.value)} onKeyDown={e => e.key === 'Enter' && gorevEkle()} />
-                  <button onClick={gorevEkle}>Ekle</button>
-                </div>
+                {[...islemler].sort((a, b) => b.tarih.localeCompare(a.tarih)).slice(0, 6).map(i => {
+                  const m = musteriler.find(x => x.id === i.musteriId);
+                  return (
+                    <div key={i.id} className="task-item" style={{ cursor: 'pointer', flexDirection: 'column', alignItems: 'flex-start' }} onClick={() => { setSeciliId(i.musteriId); setAktifSekme('Müşteriler'); }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                        <b>{m?.sirketUnvani || '—'}</b>
+                        <small style={{ color: 'var(--text-muted)' }}>{i.tarih}</small>
+                      </div>
+                      <small style={{ color: 'var(--text-muted)' }}>{i.tip}{i.not ? ` — ${i.not}` : ''}</small>
+                    </div>
+                  );
+                })}
+                {!hatirlatmalar.length && !islemler.length && <p className="bos-mesaj">Henüz aktivite yok.</p>}
               </div>
             </section>
           </>
@@ -468,23 +601,46 @@ const posDurumDegistir = (banka) => {
         {/* ── MÜŞTERİLER ── */}
         {aktifSekme === 'Müşteriler' && (
           <>
-            <div className="record-bar">
-              <button className="new-button" onClick={() => setFormAcik(true)}>+ Yeni Müşteri</button>
-              <input
-                className="form-input"
-                placeholder="Müşteri Ara"
-                value={arama}
-                onChange={e => setArama(e.target.value)}
-                style={{ width: 180 }}
-              />
-              <div style={{ display: 'flex', gap: 6, overflowX: 'auto' }}>
-                {filtrelenmisMusteriler.map(m => (
-                  <button key={m.id} className={`menu-btn ${seciliId === m.id ? 'active' : ''}`} onClick={() => setSeciliId(m.id)} style={{ padding: '6px 12px', whiteSpace: 'nowrap' }}>
-                    {m.sirketUnvani}
-                  </button>
-                ))}
-              </div>
-            </div>
+
+          <section className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            <div className="stat-card"><div><p className="stat-label">Toplam Müşteri</p><h3>{musteriler.length}</h3></div></div>
+            <div className="stat-card"><div><p className="stat-label">Aktif Fırsat</p><h3>{musteriler.filter(m => !['Kazanıldı', 'Kaybedildi'].includes(m.asama)).length}</h3></div></div>
+            <div className="stat-card"><div><p className="stat-label">Toplam Ciro</p><h3>{formatPara(toplamCiro)}</h3></div></div>
+          </section>
+<div className="record-bar">
+  <button className="new-button" onClick={() => setFormAcik(true)}>+ Yeni Müşteri</button>
+  <input
+    className="form-input"
+    placeholder="Müşteri Ara"
+    value={arama}
+    onChange={e => setArama(e.target.value)}
+    style={{ width: 180 }}
+  />
+</div>
+
+<div className="tablo-wrap" style={{ margin: '0 28px' }}>
+  <table className="islem-tablo">
+    <thead>
+      <tr><th>Profil</th><th>İletişim</th><th>Durum</th><th>Ciro</th></tr>
+    </thead>
+    <tbody>
+      {filtrelenmisMusteriler.map(m => {
+        const durumRenk = { 'Kazanılan': 'Başarılı', 'Kaybedilen': 'Başarısız', 'Bekleyen': 'İşleniyor', 'Görüşülen': 'Not' }[durumHesapla(m)] || 'Not';
+        return (
+          <tr key={m.id} onClick={() => setSeciliId(m.id)} style={{ cursor: 'pointer', background: seciliId === m.id ? 'var(--primary-light)' : 'transparent' }}>
+            <td style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="avatar" style={{ width: 28, height: 28, fontSize: 12 }}>{m.sirketUnvani?.[0] || '?'}</span>
+              {m.sirketUnvani}
+            </td>
+            <td>{m.email || '—'}<br /><small style={{ color: 'var(--text-muted)' }}>{m.telefon || '—'}</small></td>
+           <td><span className={`islem-tip-rozet islem-tip-${durumRenk}`}>{durumHesapla(m)}</span></td>
+            <td>{formatPara(musteriCirosu(m.id))}</td>
+          </tr>
+        );
+      })}
+    </tbody>
+  </table>
+</div>
 
             {formAcik && (
               <div className="mini-form">
@@ -524,13 +680,6 @@ const posDurumDegistir = (banka) => {
                     })}
                   </div>
 
-                  <div className="stage-bar" style={{ marginTop: 8 }}>
-                    {DURUMLAR.map(durum => (
-                      <button key={durum} className={seciliMusteri.durum === durum ? 'done' : ''} onClick={() => durumDegistir(durum)}>
-                        {durum}
-                      </button>
-                    ))}
-                  </div>
 
                   <article className="detail-card">
                     {seciliMusteri.asama === 'Kazanıldı' && <div className="won-ribbon">KAZANILDI</div>}
@@ -544,14 +693,14 @@ const posDurumDegistir = (banka) => {
                       <button onClick={musteriSil} style={{ background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: 'pointer' }}>Sil</button>
                     </div>
 
-                    {seciliMusteri.durum === 'Kaybedilen' && (
+                    {durumHesapla(seciliMusteri) === 'Kaybedilen' && (
                       <label style={{ display: 'block', marginBottom: 16 }}>
                         Kaybedilme Sebebi
                         <input className="form-input" style={{ marginTop: 4 }} value={seciliMusteri.kayipSebebi || ''} onChange={e => musteriGuncelle('kayipSebebi', e.target.value)} placeholder="Örn. Fiyat yüksek bulundu" />
                       </label>
                     )}
 
-                    {seciliMusteri.durum === 'Bekleyen' && (
+                    {durumHesapla(seciliMusteri) === 'Bekleyen' && (
                       <label style={{ display: 'block', marginBottom: 16 }}>
                         Bekleme Sebebi
                         <input className="form-input" style={{ marginTop: 4 }} value={seciliMusteri.beklemeSebebi || ''} onChange={e => musteriGuncelle('beklemeSebebi', e.target.value)} placeholder="Örn. Bütçe onayı bekleniyor" />
@@ -642,29 +791,106 @@ const posDurumDegistir = (banka) => {
         {/* ── RAPORLAR ── */}
         {aktifSekme === 'Raporlar' && (
           <div style={{ padding: '0 28px' }}>
+            <div className="crm-card" style={{ marginBottom: 16 }}>
+              <h3>Dönem Özeti</h3>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+                {['Bugün', 'Son 7 Gün', 'Son 30 Gün', 'Bu Ay'].map(f => (
+                  <button key={f} onClick={() => setRaporDonem(f)} style={{ padding: '4px 14px', borderRadius: 20, border: '1px solid var(--border)', background: raporDonem === f ? 'var(--primary)' : 'transparent', color: raporDonem === f ? '#fff' : 'inherit', cursor: 'pointer', fontSize: 13 }}>
+                    {f}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap' }}>
+                <div><p className="stat-label">Başarı Oranı</p><h3>%{raporMetrikleri.oran}</h3></div>
+                <div><p className="stat-label">Başarılı / Başarısız</p><h3>{raporMetrikleri.basarili} / {raporMetrikleri.basarisiz}</h3></div>
+                <div><p className="stat-label">En Aktif Banka</p><h3>{raporMetrikleri.enAktifBanka}</h3></div>
+                <div><p className="stat-label">Dönem Cirosu</p><h3>{formatPara(raporMetrikleri.donemCiro)}</h3></div>
+              </div>
+            </div>
+
             <section className="stats-grid">
               <div className="stat-card"><div><p className="stat-label">Toplam Müşteri</p><h3>{musteriler.length}</h3></div></div>
               <div className="stat-card"><div><p className="stat-label">Kazanılan</p><h3>{kazanilan}</h3></div></div>
               <div className="stat-card"><div><p className="stat-label">Kazanma Oranı</p><h3>%{musteriler.length ? Math.round(kazanilan / musteriler.length * 100) : 0}</h3></div></div>
-              <div className="stat-card"><div><p className="stat-label">Toplam Ciro</p><h3>{formatPara(musteriler.reduce((t, m) => t + musteriCirosu(m.id), 0))}</h3></div></div>
+              <div className="stat-card"><div><p className="stat-label">Toplam Ciro</p><h3>{formatPara(toplamCiro)}</h3></div></div>
             </section>
+
+<div className="crm-card" style={{ marginTop: 16 }}>
+  <h3>Satış (Aşama Raporu)</h3>
+  <div className="tablo-wrap">
+    <table className="islem-tablo">
+      <thead>
+        <tr><th>Aşama</th><th>Müşteri Sayısı</th><th>Toplam Ciro</th><th>Ort. Gün (bu aşamada)</th></tr>
+      </thead>
+      <tbody>
+        {ASAMALAR.map(asama => {
+          const buAsamadakiler = musteriler.filter(m => m.asama === asama);
+          const toplamCiroBuAsama = buAsamadakiler.reduce((t, m) => t + musteriCirosu(m.id), 0);
+          const gunler = buAsamadakiler.map(m => gunFarki(m.asamaTarihi)).filter(g => g > 0);
+          const ortGun = gunler.length ? Math.round(gunler.reduce((t, g) => t + g, 0) / gunler.length) : 0;
+          return (
+            <tr key={asama}>
+              <td>{asama}</td>
+              <td>{buAsamadakiler.length}</td>
+              <td>{formatPara(toplamCiroBuAsama)}</td>
+              <td>{ortGun} gün</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  </div>
+</div>
+
             <div className="crm-card" style={{ marginTop: 16 }}>
-              <h3>Aşama Dağılımı</h3>
-              {ASAMALAR.map(asama => {
-                const sayi = musteriler.filter(m => m.asama === asama).length;
-                const oran = musteriler.length ? Math.round(sayi / musteriler.length * 100) : 0;
-                return (
-                  <div key={asama} style={{ marginBottom: 12 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <span>{asama}</span>
-                      <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{sayi} müşteri — %{oran}</span>
-                    </div>
-                    <div style={{ height: 8, background: 'var(--border)', borderRadius: 4 }}>
-                      <div style={{ height: 8, width: `${oran}%`, background: 'var(--primary)', borderRadius: 4 }} />
-                    </div>
-                  </div>
-                );
-              })}
+              <h3>Son İşlemler</h3>
+              {odemeler.length === 0 ? (
+                <p className="bos-mesaj">Kayıt yok.</p>
+              ) : (
+                <div className="tablo-wrap">
+                  <table className="islem-tablo">
+                    <thead>
+                      <tr><th>Tarih</th><th>İşlem Tipi</th><th>Tutar</th><th>Durum</th></tr>
+                    </thead>
+                    <tbody>
+                      {[...odemeler].sort((a, b) => b.tarih.localeCompare(a.tarih)).slice(0, 10).map(o => (
+                        <tr key={o.id}>
+                          <td>{o.tarih}</td>
+                          <td>{o.islemTipi}</td>
+                          <td>{formatPara(o.tutar)}</td>
+                          <td><span className={`islem-tip-rozet islem-tip-${o.durum}`}>{o.durum}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="crm-card" style={{ marginTop: 16, marginBottom: 16 }}>
+              <h3>Kayıtlı Kart Raporları</h3>
+              <p className="stat-label" style={{ marginBottom: 12 }}>Sistem genelinde {kayitliKartlar.length} benzersiz kart kaydı</p>
+              {kayitliKartlar.length === 0 ? (
+                <p className="bos-mesaj">Kayıt yok.</p>
+              ) : (
+                <div className="tablo-wrap">
+                  <table className="islem-tablo">
+                    <thead>
+                      <tr><th>Kart</th><th>Kart Bankası</th><th>Kart Tipi</th><th>Müşteri</th></tr>
+                    </thead>
+                    <tbody>
+                      {kayitliKartlar.map(k => (
+                        <tr key={k.kart}>
+                          <td>{k.kart}</td>
+                          <td>{k.kartBankasi}</td>
+                          <td>{k.kartTipi}</td>
+                          <td>{k.musteri}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -760,18 +986,69 @@ const posDurumDegistir = (banka) => {
   </div>
 )}
 
-        {/* ── KULLANICILAR ── */}
-        {aktifSekme === 'Kullanıcılar' && (
-          <div className="crm-card" style={{ margin: '0 28px' }}>
-            <h3>Kullanıcılar</h3>
-            {[{ ad: 'İlayda Budak', rol: 'Yönetici' }, { ad: 'Oktay Oygut', rol: 'Satış Temsilcisi' }].map(k => (
-              <div key={k.ad} className="task-item">
-                <span>{k.ad}</span>
-                <small style={{ color: 'var(--text-muted)' }}>{k.rol}</small>
-              </div>
+{aktifSekme === 'Kullanıcılar' && (
+  <div className="crm-card" style={{ margin: '0 28px' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+      <h3 style={{ margin: 0 }}>Kullanıcılar</h3>
+      <button className="new-button" onClick={() => setKullaniciFormAcik(a => !a)}>+ Yeni Kullanıcı</button>
+    </div>
+
+    {kullaniciFormAcik && (
+      <div className="mini-form" style={{ marginBottom: 16 }}>
+        <input className="form-input" placeholder="Kullanıcı Adı *" value={yeniKullaniciForm.kullaniciAdi} onChange={e => setYeniKullaniciForm({ ...yeniKullaniciForm, kullaniciAdi: e.target.value })} />
+        <input className="form-input" placeholder="Ad Soyad" value={yeniKullaniciForm.adSoyad} onChange={e => setYeniKullaniciForm({ ...yeniKullaniciForm, adSoyad: e.target.value })} />
+        <input className="form-input" type="password" placeholder="Şifre *" value={yeniKullaniciForm.sifre} onChange={e => setYeniKullaniciForm({ ...yeniKullaniciForm, sifre: e.target.value })} />
+        <select className="form-input" value={yeniKullaniciForm.kullaniciTipi} onChange={e => setYeniKullaniciForm({ ...yeniKullaniciForm, kullaniciTipi: e.target.value })}>
+          <option value="Portal">Portal</option>
+          <option value="API">API</option>
+        </select>
+        <select className="form-input" value={yeniKullaniciForm.yetki} onChange={e => setYeniKullaniciForm({ ...yeniKullaniciForm, yetki: e.target.value })}>
+          <option value="">Yetki seçin</option>
+          <option value="Yönetici">Yönetici</option>
+          <option value="Satış Temsilcisi">Satış Temsilcisi</option>
+          <option value="Görüntüleyici">Görüntüleyici</option>
+        </select>
+        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <button onClick={kullaniciEkle} className="new-button">Kaydet</button>
+          <button onClick={() => setKullaniciFormAcik(false)}>İptal</button>
+        </div>
+      </div>
+    )}
+
+    {kullanicilar.length === 0 ? (
+      <p className="bos-mesaj">Henüz kullanıcı yok.</p>
+    ) : (
+      <div className="tablo-wrap">
+        <table className="islem-tablo">
+          <thead>
+            <tr>
+              <th>Kullanıcı Adı</th><th>Ad Soyad</th><th>Kullanıcı Tipi</th><th>Yetki</th><th>Durum</th><th>İşlemler</th>
+            </tr>
+          </thead>
+          <tbody>
+            {kullanicilar.map(k => (
+              <tr key={k.id}>
+                <td>{k.kullaniciAdi}</td>
+                <td>{k.adSoyad}</td>
+                <td>{k.kullaniciTipi}</td>
+                <td>{k.yetki}</td>
+                <td>
+                  <span className={`islem-tip-rozet islem-tip-${k.durum === 'Aktif' ? 'Başarılı' : 'Başarısız'}`}>{k.durum}</span>
+                </td>
+                <td style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => kullaniciDurumDegistir(k)} style={{ fontSize: 12, cursor: 'pointer', border: '1px solid var(--border)', background: 'none', borderRadius: 6, padding: '4px 8px' }}>
+                    {k.durum === 'Aktif' ? 'Pasif Yap' : 'Aktif Yap'}
+                  </button>
+                  <button onClick={() => kullaniciSil(k.id)} style={{ fontSize: 12, cursor: 'pointer', border: 'none', background: 'none', color: '#b91c1c' }}>Sil</button>
+                </td>
+              </tr>
             ))}
-          </div>
-        )}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </div>
+)}
       </main>
     </div>
   );

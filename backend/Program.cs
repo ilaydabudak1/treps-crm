@@ -190,6 +190,82 @@ app.MapGet("/Odemeler" , () => Odemeler);
 app.MapGet("/Odemeler/{musteriId}" , (int musteriId) =>
 Odemeler.Where(o => o.MusteriId == musteriId).ToList());
 
+List<KullaniciKayit> Kullanicilar = new()
+{
+    new KullaniciKayit { Id = 1, KullaniciAdi = "ilayda", AdSoyad = "İlayda Budak", SifreHash = BCrypt.Net.BCrypt.HashPassword("000000"), KullaniciTipi = "Portal", Yetki = "Yönetici", Durum = "Aktif" },
+    
+};
 
+Dictionary<string, int> Oturumlar = new();
+
+app.MapGet("/Kullanicilar", () =>
+    Kullanicilar.Select(k => new KullaniciDto(k.Id, k.KullaniciAdi, k.AdSoyad, k.KullaniciTipi, k.Yetki, k.Durum)).ToList());
+
+app.MapPost("/Kullanicilar", (CreateKullaniciDto yeniKullaniciDto) =>
+{
+    var kayit = new KullaniciKayit
+    {
+        Id = Kullanicilar.Count + 1,
+        KullaniciAdi = yeniKullaniciDto.KullaniciAdi,
+        AdSoyad = yeniKullaniciDto.AdSoyad,
+        SifreHash = BCrypt.Net.BCrypt.HashPassword(yeniKullaniciDto.Sifre),
+        KullaniciTipi = yeniKullaniciDto.KullaniciTipi,
+        Yetki = yeniKullaniciDto.Yetki,
+        Durum = "Aktif"
+    };
+    Kullanicilar.Add(kayit);
+    var dto = new KullaniciDto(kayit.Id, kayit.KullaniciAdi, kayit.AdSoyad, kayit.KullaniciTipi, kayit.Yetki, kayit.Durum);
+    return Results.Created($"/Kullanicilar/{kayit.Id}", dto);
+});
+
+app.MapPut("/Kullanicilar/{id}", (int id, UpdateKullaniciDto updateDto) =>
+{
+    var kayit = Kullanicilar.Find(k => k.Id == id);
+    if (kayit is null) return Results.NotFound();
+
+    kayit.KullaniciAdi = updateDto.KullaniciAdi;
+    kayit.AdSoyad = updateDto.AdSoyad;
+    kayit.KullaniciTipi = updateDto.KullaniciTipi;
+    kayit.Yetki = updateDto.Yetki;
+    kayit.Durum = updateDto.Durum;
+    if (!string.IsNullOrWhiteSpace(updateDto.Sifre))
+    {
+        kayit.SifreHash = BCrypt.Net.BCrypt.HashPassword(updateDto.Sifre);
+    }
+    return Results.NoContent();
+});
+
+app.MapDelete("/Kullanicilar/{id}", (int id) =>
+{
+    Kullanicilar.RemoveAll(k => k.Id == id);
+    return Results.NoContent();
+});
+
+app.MapPost("/Login", (LoginDto loginDto) =>
+{
+    var kayit = Kullanicilar.Find(k => k.KullaniciAdi == loginDto.KullaniciAdi);
+
+    if (kayit is null || kayit.Durum != "Aktif" || !BCrypt.Net.BCrypt.Verify(loginDto.Sifre, kayit.SifreHash))
+    {
+        return Results.Unauthorized();
+    }
+
+    string token = Guid.NewGuid().ToString();
+    Oturumlar[token] = kayit.Id;
+
+    var dto = new KullaniciDto(kayit.Id, kayit.KullaniciAdi, kayit.AdSoyad, kayit.KullaniciTipi, kayit.Yetki, kayit.Durum);
+    return Results.Ok(new { token, kullanici = dto });
+});
 
 app.Run();
+
+class KullaniciKayit
+{
+    public int Id { get; set; }
+    public string KullaniciAdi { get; set; } = "";
+    public string AdSoyad { get; set; } = "";
+    public string SifreHash { get; set; } = "";
+    public string KullaniciTipi { get; set; } = "";
+    public string Yetki { get; set; } = "";
+    public string Durum { get; set; } = "";
+}
