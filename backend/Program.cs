@@ -1,4 +1,5 @@
 using backend.Dtos;
+using System.Text.Json;
 
 
 
@@ -56,7 +57,8 @@ app.MapPost("/Musteri", (CreateMusteriDto yeniMusteriDto) =>
         yeniMusteriDto.PlanTarihi,
         yeniMusteriDto.PlanNotu,
         yeniMusteriDto.Yonlendiren,
-        yeniMusteriDto.GelirPayiOrani
+        yeniMusteriDto.GelirPayiOrani,
+        yeniMusteriDto.Semt
     );
 
     Musteri.Add(musteri);
@@ -93,7 +95,8 @@ app.MapPut ("/Musteri/{id}" , (int id, UpdateMusteriDto updateMusteriDto) =>
         updateMusteriDto.PlanTarihi,
         updateMusteriDto.PlanNotu,
         updateMusteriDto.Yonlendiren,
-        updateMusteriDto.GelirPayiOrani
+        updateMusteriDto.GelirPayiOrani,
+        updateMusteriDto.Semt
     );
     return Results.NoContent();
 }
@@ -148,33 +151,7 @@ app.MapDelete ("/Islemler/{id}" , (int id) =>
     return Results.NoContent();
 });
 
-List<GorevDto> Gorevler = new();
-app.MapGet("/Gorevler" , () => Gorevler);
-app.MapPost("/Gorevler" , (CreateGorevDto yeniGorevDto) =>
-{
-    GorevDto gorev = new(Gorevler.Count + 1, yeniGorevDto.Metin, false);
-    Gorevler.Add(gorev);
-    return Results.Created($"/Gorevler/{gorev.Id}" , gorev);
-}
-);
-app.MapPut("/Gorevler/{id}" , (int id , UpdateGorevDto updategorevdto) =>
-{
-    var index = Gorevler.FindIndex(g => g.Id == id);
-    if(index == -1)
-    {
-        return Results.NotFound();   
-    }
-    Gorevler[index] = new GorevDto(id, updategorevdto.Metin, updategorevdto.Tamam);
-     return Results.NoContent();
 
-});
-
-app.MapDelete("/Gorevler/{id}" , (int id) =>
-{
-    Gorevler.RemoveAll( g => g.Id == id);
-    return Results.NoContent();
-}
-);
 
 List<OdemeDto> Odemeler = new()
     {
@@ -197,6 +174,10 @@ List<KullaniciKayit> Kullanicilar = new()
 };
 
 Dictionary<string, int> Oturumlar = new();
+const string GOOGLE_TOKEN_DOSYASI = "google-tokens.json";
+Dictionary<int, string> GoogleRefreshTokenlar = File.Exists(GOOGLE_TOKEN_DOSYASI)
+    ? JsonSerializer.Deserialize<Dictionary<int, string>>(File.ReadAllText(GOOGLE_TOKEN_DOSYASI)) ?? new()
+    : new();
 
 app.MapGet("/Kullanicilar", () =>
     Kullanicilar.Select(k => new KullaniciDto(k.Id, k.KullaniciAdi, k.AdSoyad, k.KullaniciTipi, k.Yetki, k.Durum)).ToList());
@@ -255,6 +236,82 @@ app.MapPost("/Login", (LoginDto loginDto) =>
 
     var dto = new KullaniciDto(kayit.Id, kayit.KullaniciAdi, kayit.AdSoyad, kayit.KullaniciTipi, kayit.Yetki, kayit.Durum);
     return Results.Ok(new { token, kullanici = dto });
+});
+
+const string GOOGLE_CLIENT_ID = "711700948552-vorknte8alrnal606lnao1e6ubunmkb2.apps.googleusercontent.com";
+var googleClientSecret = builder.Configuration["GoogleClientSecret"];
+
+app.MapPost("/GoogleAuth/Kod", async (GoogleKodDto dto) =>
+{
+    using var http = new HttpClient();
+    var yanit = await http.PostAsync("https://oauth2.googleapis.com/token", new FormUrlEncodedContent(new Dictionary<string, string>
+    {
+        ["code"] = dto.Kod,
+        ["client_id"] = GOOGLE_CLIENT_ID,
+        ["client_secret"] = googleClientSecret!,
+        ["redirect_uri"] = "postmessage",
+        ["grant_type"] = "authorization_code"
+    }));
+    var icerik = await yanit.Content.ReadAsStringAsync();
+    if (!yanit.IsSuccessStatusCode) return Results.BadRequest(icerik);
+
+    using var json = JsonDocument.Parse(icerik);
+    var kok = json.RootElement;
+    var accessToken = kok.GetProperty("access_token").GetString();
+    if (kok.TryGetProperty("refresh_token", out var rt))
+    {
+        GoogleRefreshTokenlar[dto.KullaniciId] = rt.GetString()!;
+        File.WriteAllText(GOOGLE_TOKEN_DOSYASI, JsonSerializer.Serialize(GoogleRefreshTokenlar));
+    }
+
+    return Results.Ok(new { accessToken });
+});
+
+app.MapGet("/GoogleAuth/Token/{kullaniciId}", async (int kullaniciId) =>
+{
+    if (!GoogleRefreshTokenlar.TryGetValue(kullaniciId, out var refreshToken))
+        return Results.NotFound();
+
+    using var http = new HttpClient();
+    var yanit = await http.PostAsync("https://oauth2.googleapis.com/token", new FormUrlEncodedContent(new Dictionary<string, string>
+    {
+        ["refresh_token"] = refreshToken,
+        ["client_id"] = GOOGLE_CLIENT_ID,
+        ["client_secret"] = googleClientSecret!,
+        ["grant_type"] = "refresh_token"
+    }));
+    var icerik = await yanit.Content.ReadAsStringAsync();
+    if (!yanit.IsSuccessStatusCode) return Results.BadRequest(icerik);
+
+    using var json = JsonDocument.Parse(icerik);
+    var accessToken = json.RootElement.GetProperty("access_token").GetString();
+    return Results.Ok(new { accessToken });
+});
+
+List<FaturaDto> Faturalar = new();
+
+app.MapGet("/Faturalar", () => Faturalar);
+
+app.MapPost("/Faturalar", (CreateFaturaDto dto) =>
+{
+    var kayit = new FaturaDto(Faturalar.Count + 1, dto.MusteriId, dto.FaturaNo, dto.Tarih, dto.Tutar, "0", "0", dto.ValorTarihi, dto.Notlar, "Onaylanmadı");
+    Faturalar.Add(kayit);
+    return Results.Created($"/Faturalar/{kayit.Id}", kayit);
+});
+
+app.MapPut("/Faturalar/{id}", (int id, UpdateFaturaDto dto) =>
+{
+    var index = Faturalar.FindIndex(f => f.Id == id);
+    if (index == -1) return Results.NotFound();
+    var eski = Faturalar[index];
+    Faturalar[index] = eski with { Onaylanan = dto.Onaylanan, Odenen = dto.Odenen, Durum = dto.Durum };
+    return Results.NoContent();
+});
+
+app.MapDelete("/Faturalar/{id}", (int id) =>
+{
+    Faturalar.RemoveAll(f => f.Id == id);
+    return Results.NoContent();
 });
 
 app.Run();

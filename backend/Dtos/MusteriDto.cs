@@ -22,5 +22,6 @@ public record MusteriDto (
     string PlanTarihi = "",
     string PlanNotu = "",
     string Yonlendiren = "",
-    string GelirPayiOrani = ""
+    string GelirPayiOrani = "",
+    string Semt = ""
 );

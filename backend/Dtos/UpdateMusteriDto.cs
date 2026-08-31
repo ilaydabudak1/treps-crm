@@ -21,5 +21,6 @@ public record UpdateMusteriDto(
     string PlanTarihi = "",
     string PlanNotu = "",
     string Yonlendiren = "",
-    string GelirPayiOrani = ""
+    string GelirPayiOrani = "",
+    string Semt = ""
 );

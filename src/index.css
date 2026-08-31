@@ -22,8 +22,11 @@ button { border: none; background: none; cursor: pointer; padding: 0; color: inh
 .logo-icon { background: var(--primary); color: #fff; padding: 4px 10px; border-radius: 8px; }
 
 .sidebar-menu { display: flex; flex-direction: column; gap: 4px; flex: 1; }
-.menu-btn { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: none; background: transparent; color: var(--text-muted); border-radius: 8px; cursor: pointer; font-weight: 500; width: 100%; text-align: left; }
-.menu-btn.active, .menu-btn:hover { background: var(--primary-light); color: var(--primary); font-weight: bold; }
+.menu-btn { display: flex; align-items: center; gap: 8px; width: 40px; height: 40px; padding: 0; justify-content: center; border: none; background: transparent; color: var(--text-muted); border-radius: 20px; cursor: pointer; font-weight: 500; overflow: hidden; white-space: nowrap; transition: width 0.15s ease, background 0.15s ease, padding 0.15s ease; }
+.menu-btn svg { flex-shrink: 0; }
+.menu-btn .menu-label { max-width: 0; opacity: 0; overflow: hidden; transition: max-width 0.15s ease, opacity 0.15s ease; }
+.menu-btn.active, .menu-btn:hover { width: 150px; justify-content: flex-start; padding: 0 12px; background: var(--primary-light); color: var(--primary); font-weight: bold; }
+.menu-btn.active .menu-label, .menu-btn:hover .menu-label { max-width: 120px; opacity: 1; }
 
 .crm-main { flex: 1; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; }
 .crm-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 28px; background: var(--bg-card); border-bottom: 1px solid var(--border); }
@@ -41,12 +44,13 @@ button { border: none; background: none; cursor: pointer; padding: 0; color: inh
 .content-grid { display: grid; grid-template-columns: 3fr 2fr; gap: 16px; padding: 0 28px; }
 .crm-card h3 { margin: 0 0 14px; font-size: 15px; }
 
+.metric-card { border-radius: 12px; padding: 14px 16px; background: rgba(9, 141, 152, 0.08); }
+
 /* ── LISTS & TASKS ── */
-.task-item, .gorev-item { padding: 10px; background: var(--bg-app); border-radius: 8px; font-size: 13px; margin-bottom: 6px; }
-.task-item { display: flex; align-items: center; justify-content: space-between; }
+.task-item, .gorev-item { padding: 10px; background: var(--bg-app); border-radius: 8px; font-size: 13px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; }
 .gorev-item { cursor: pointer; }
 .gorev-item.uyari { background: #fef2f2; color: #b91c1c; border-left: 3px solid #ef4444; }
-.gorev-item.tamam { text-decoration: line-through; color: var(--text-muted); }
+.asama-baslik { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em; margin-bottom: 6px; padding: 4px 0; border-bottom: 1px solid var(--border); }
 
 /* ── RECORD BAR & STAGES ── */
 .record-bar { padding: 12px 28px; display: flex; align-items: center; gap: 10px; background: var(--bg-card); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
@@ -70,20 +74,6 @@ button { border: none; background: none; cursor: pointer; padding: 0; color: inh
 .value-row span { display: block; color: var(--text-muted); font-size: 13px; }
 .value-row b { display: block; margin-top: 4px; font-size: 18px; }
 
-/* ── ACTIVITY PANEL ── */
-.activity-panel { padding: 16px 20px; background: var(--bg-card); border-left: 1px solid var(--border); }
-.activity-actions { display: flex; gap: 8px; margin-bottom: 16px; }
-.activity-actions a, .activity-actions button { padding: 9px 13px; border: 0; border-radius: 6px; background: #f1f5f9; color: var(--text); text-decoration: none; cursor: pointer; font-weight: 600; font-size: 13px; }
-.activity-actions a { background: var(--primary); color: #fff; }
-
-.note-input textarea { width: 100%; min-height: 65px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; resize: vertical; margin-bottom: 6px; }
-.note-input button { float: right; padding: 6px 12px; border: 0; background: var(--turkuaz); color: #fff; border-radius: 4px; cursor: pointer; }
-.activity { clear: both; display: flex; gap: 10px; padding: 14px 0; border-bottom: 1px solid #f1f5f9; }
-.mini-avatar { width: 34px; height: 34px; border-radius: 6px; flex-shrink: 0; }
-.activity strong { font-size: 13px; }
-.activity small { color: var(--text-muted); font-weight: normal; }
-.activity p { margin: 5px 0 0; font-size: 13px; }
-
 /* ── FORMS & INPUTS ── */
 .form-input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; outline: none; }
 .form-input:focus { border-color: var(--primary); }
@@ -96,12 +86,8 @@ button { border: none; background: none; cursor: pointer; padding: 0; color: inh
 .bilgi-row span { color: var(--text-muted); }
 .gun-sayac { margin-top: 14px; padding: 10px 14px; background: var(--bg-app); border-radius: 6px; font-size: 13px; }
 .gun-sayac.uyari { background: #fef2f2; color: #b91c1c; }
-.asama-baslik { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em; margin-bottom: 6px; padding: 4px 0; border-bottom: 1px solid var(--border); }
 
-/* ── STATUS BAR & SLIDER ── */
-.status-bar { display: flex; gap: 24px; align-items: center; padding: 12px 28px; background: #1e1b4b; color: #c7d2fe; font-size: 13px; }
-.status-bar b { color: #fff; }
-
+/* ── SLIDER ── */
 .slider-wrap { overflow: hidden; border-top: 1px solid var(--border); padding: 14px 0; background: var(--bg-card); }
 .slider-track { display: flex; gap: 14px; width: max-content; animation: kayan 22s linear infinite; }
 .slider-wrap:hover .slider-track { animation-play-state: paused; }
@@ -109,12 +95,6 @@ button { border: none; background: none; cursor: pointer; padding: 0; color: inh
 .slider-kart { border: 1px solid var(--border); border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
 .slider-kart .ok { display: none; }
 .slider-kart:hover .ok { display: inline; color: var(--primary); }
-
-.stat-icon-wrap { width: 44px; height: 44px; border-radius: 10px; display: grid; place-items: center; font-size: 20px; flex-shrink: 0; }
-.stat-icon-mavi { background: #eef2ff; }
-.stat-icon-yesil { background: #dcfce7; }
-.stat-icon-turuncu { background: #fff7ed; }
-.stat-icon-kirmizi { background: #fef2f2; }
 
 /* ── İŞLEM TABLOSU ── */
 .tablo-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
@@ -135,11 +115,18 @@ button { border: none; background: none; cursor: pointer; padding: 0; color: inh
 .islem-tip-İşleniyor { background: #fef3c7; color: #92400e; }
 
 /* ── SANAL POS GRID ── */
-.pos-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.pos-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
 .pos-kart { border: 1px solid var(--border); border-radius: 8px; padding: 10px; cursor: pointer; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
 .pos-kart span { font-size: 11px; color: var(--text-muted); }
 .pos-kart.aktif { border-color: var(--primary); background: var(--primary-light); }
 .pos-kart.aktif span { color: var(--primary); font-weight: 600; }
+
+/* ── TAKVİM GRID ── */
+.takvim-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.takvim-baslik { text-align: center; font-size: 11px; font-weight: 700; color: var(--text-muted); padding: 4px 0; }
+.takvim-gun { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border-radius: 8px; font-size: 12px; background: var(--bg-app); cursor: pointer; }
+.takvim-gun.secili { outline: 2px solid var(--text); outline-offset: 1px; }
+.takvim-gun.dolu { background: var(--primary); color: #fff; font-weight: 700; cursor: help; }
 
 /* ── MEDIA QUERIES ── */
 @media (max-width: 1000px) {
