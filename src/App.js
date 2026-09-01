@@ -77,6 +77,8 @@ const SEKME_IKONLARI = {
 const ODEME_KURULUSLARI = ['Qnbpay', 'İyzico', 'Payinall', 'Paynkolay', 'Lidio', 'ParatikaParam', 'PayTR', 'ZiraatPay', 'VakıfPay', 'MorPara', 'Moka', 'United', 'Tami'];
 const BANKALAR = ['GarantiBBVA', 'Ziraat', 'TEB', 'VakıfBank', 'HalkBank', 'QNB', 'DenizBank', 'KuveytTürk', 'Türkiye İş Bankası', 'Akbank', 'Albaraka'];
 const MUHASEBE_PROGRAMLARI = ['Logo', 'Netsis', 'Mikro', 'Paraşüt', 'Zirve', 'Bizim Hesap', 'Odoo', 'Nebim', 'ETA', 'Uyumsoft', 'Dia'];
+const KART_SEMALARI = ['Visa', 'Mastercard', 'Troy', 'Amex'];
+
 
 const API_BASE = 'http://localhost:5279';
 const GOOGLE_CLIENT_ID = '711700948552-vorknte8alrnal606lnao1e6ubunmkb2.apps.googleusercontent.com';
@@ -205,6 +207,8 @@ const [seciliGun, setSeciliGun] = useState(null);
   const [islemAltSekme, setIslemAltSekme] = useState('Tümü');
   const [posArama, setPosArama] = useState('');
   const [eklemeAcikBanka, setEklemeAcikBanka] = useState(null);
+  const[eklemeMusteriId, setEklemeMusteriId] = useState('');
+  const [eklemeGuvenli3D, setEklemeGuvenli3D] = useState('Kapalı');
   const [yeniFaturaForm, setYeniFaturaForm] = useState({ musteriId: '', faturaNo: '', tarih: '', tutar: '', valorTarihi: '', notlar: '' });
   
   const [yeniTarih, setYeniTarih] = useState('');
@@ -292,6 +296,7 @@ const kullaniciSil = (id) => {
       fetch(`${API_BASE}/Odemeler`).then(res => res.json()),
       fetch(`${API_BASE}/Kullanicilar`).then(res => res.json()),
       fetch(`${API_BASE}/Faturalar`).then(res => res.json())
+     
     ]).then(([islemlerVeri, musteriVeri, odemelerVeri, kullanicilarVeri, faturalarVeri]) => {
       setIslemler(islemlerVeri || []);
       setMusteriler(musteriVeri || []);
@@ -658,6 +663,37 @@ const posKaldirMusteri = (musteri, banka) => {
   musteriPut(musteri.id, { entegrasyonBanka: yeniDeger }).catch(err => console.error('Güncelleme hatası:', err));
 };
 
+const guvenli3DOku = (musteri, banka) => {
+  const liste = (musteri?.entegrasyonBanka || '').split(',').filter(Boolean);
+  const kayit = liste.find(k => k.startsWith(banka + ':'));
+  return kayit ? kayit.split(':')[2] || '' : '';
+};
+
+const kartSemasiOku = (musteri, banka) => {
+  const liste = (musteri?.entegrasyonBanka || '').split(',').filter(Boolean);
+  const kayit = liste.find(k => k.startsWith(banka + ':'));
+  return kayit ? kayit.split(':')[3] || '' : '';
+};
+
+const posEkleMusteri = (musteri, banka, guvenli3D) => {
+  const liste = (musteri.entegrasyonBanka || '').split(',').filter(Boolean);
+  const yeniListe = [...liste, `${banka}:Aktif:${guvenli3D}:`];
+  const yeniDeger = yeniListe.join(',');
+  setMusteriler(eski => eski.map(m => m.id === musteri.id ? { ...m, entegrasyonBanka: yeniDeger } : m));
+  musteriPut(musteri.id, { entegrasyonBanka: yeniDeger }).catch(err => console.error('Güncelleme hatası:', err));
+};
+
+const kartSemasiSec = (musteri, banka, sema) => {
+  const liste = (musteri.entegrasyonBanka || '').split(',').filter(Boolean);
+  const yeniListe = liste.map(k => {
+    if (!k.startsWith(banka + ':')) return k;
+    const parcalar = k.split(':');
+    return `${parcalar[0]}:${parcalar[1]}:${parcalar[2] || ''}:${sema}`;
+  });
+  const yeniDeger = yeniListe.join(',');
+  setMusteriler(eski => eski.map(m => m.id === musteri.id ? { ...m, entegrasyonBanka: yeniDeger } : m));
+  musteriPut(musteri.id, { entegrasyonBanka: yeniDeger }).catch(err => console.error('Güncelleme hatası:', err));
+};
 
   const musteriSil = () => {
     if (!seciliMusteri || !window.confirm(`${seciliMusteri.sirketUnvani} silinsin mi?`)) return;
@@ -1525,11 +1561,28 @@ const googleEtkinlikSil = (eventId) => {
             </div>
 
             {eklemeAcikBanka === b && (
-              <select className="form-input" style={{ marginTop: 8 }} defaultValue="" onChange={e => { const secilen = musteriler.find(m => m.id === Number(e.target.value)); if (secilen) posDurumDegistirMusteri(secilen, b); setEklemeAcikBanka(null); }}>
-                <option value="" disabled>Müşteri seç</option>
-                {musteriler.filter(m => !bankaDurumu(m, b)).map(m => <option key={m.id} value={m.id}>{m.sirketUnvani}</option>)}
-              </select>
+              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <select className="pos-ekle-select" value={eklemeMusteriId} onChange={e => setEklemeMusteriId(e.target.value)}>
+                  <option value="">Müşteri seç</option>
+                  {musteriler.filter(m => !bankaDurumu(m, b)).map(m => <option key={m.id} value={m.id}>{m.sirketUnvani}</option>)}
+                </select>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14 }}>
+                  <span className="toggle-switch">
+                    <input type="checkbox" checked={eklemeGuvenli3D === 'Açık'} onChange={e => setEklemeGuvenli3D(e.target.checked ? 'Açık' : 'Kapalı')} />
+                    <span className="toggle-slider"></span>
+                  </span>
+                  3D Secure
+                </label>
+                <button className="pos-ekle-buton" onClick={() => {
+                  const secilen = musteriler.find(m => m.id === Number(eklemeMusteriId));
+                  if (secilen) posEkleMusteri(secilen, b, eklemeGuvenli3D);
+                  setEklemeAcikBanka(null);
+                  setEklemeMusteriId('');
+                }}>Ekle</button>
+              </div>
             )}
+
+
 
             <div style={{ marginTop: 10 }}>
               {musteriListesi.length === 0 ? (
@@ -1545,7 +1598,10 @@ const googleEtkinlikSil = (eventId) => {
                       >
                         {durum}
                       </span>
-                      
+                      <select className="form-input" style={{ width: 'auto', fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 10, border: '1px solid var(--border)', color: 'var(--text-muted)', background: '#fff' }} value={kartSemasiOku(m, b)} onChange={e => kartSemasiSec(m, b, e.target.value)}>
+                      <option value="">Kart Şeması</option>
+                      {KART_SEMALARI.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
                     </div>
                   </div>
                   <button onClick={() => posKaldirMusteri(m, b)} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 14 }}>×</button>
@@ -1556,6 +1612,8 @@ const googleEtkinlikSil = (eventId) => {
         );
       })}
     </div>
+
+
   </div>
 )}
 

@@ -314,6 +314,32 @@ app.MapDelete("/Faturalar/{id}", (int id) =>
     return Results.NoContent();
 });
 
+Dictionary<string, string> KartSemalariDurumu = new();
+Dictionary<string, string> CuzdanlarDurumu = new();
+string Guvenli3DAyari = "İsteğe Bağlı";
+
+app.MapGet("/SanalPos", () => new { kartSemalari = KartSemalariDurumu, cuzdanlar = CuzdanlarDurumu, guvenli3D = Guvenli3DAyari });
+
+app.MapPost("/SanalPos/KartSemalari/{ad}", (string ad) =>
+{
+    var mevcut = KartSemalariDurumu.GetValueOrDefault(ad);
+    KartSemalariDurumu[ad] = mevcut == "Aktif" ? "Pasif" : "Aktif";
+    return Results.Ok(KartSemalariDurumu);
+});
+
+app.MapPost("/SanalPos/Cuzdan/{ad}", (string ad) =>
+{
+    var mevcut = CuzdanlarDurumu.GetValueOrDefault(ad);
+    CuzdanlarDurumu[ad] = mevcut == "Aktif" ? "Pasif" : "Aktif";
+    return Results.Ok(CuzdanlarDurumu);
+});
+
+app.MapPut("/SanalPos/Guvenli3D", (Guvenli3DDto dto) =>
+{
+    Guvenli3DAyari = dto.Deger;
+    return Results.Ok(new { guvenli3D = Guvenli3DAyari });
+});
+
 app.Run();
 
 class KullaniciKayit
