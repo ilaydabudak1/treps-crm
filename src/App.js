@@ -72,6 +72,11 @@ const SEKME_IKONLARI = {
   ),
 };
 
+const IKON_TREND = <Icon><path d="M3 17l6-6 4 4 8-8"/><path d="M17 7h4v4"/></Icon>;
+const IKON_KALKAN = <Icon><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></Icon>;
+const IKON_BELGE = <Icon><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></Icon>;
+const IKON_TUTAR = <Icon><circle cx="12" cy="12" r="10"/><path d="M12 6v12M9 9h4.5a2 2 0 0 1 0 4H9m0 0h5a2 2 0 0 1 0 4H9"/></Icon>;
+
 
 
 const ODEME_KURULUSLARI = ['Qnbpay', 'İyzico', 'Payinall', 'Paynkolay', 'Lidio', 'ParatikaParam', 'PayTR', 'ZiraatPay', 'VakıfPay', 'MorPara', 'Moka', 'United', 'Tami'];
@@ -440,6 +445,55 @@ const hakedisOzeti = useMemo(() => {
 
   return { toplamTutar, odenen, netBakiye, musteriOzeti };
 }, [faturalar, musteriler]);
+
+const gunSayisiMap = { 'Bugün': 1, 'Dün': 1, 'Bu Hafta': 7, 'Bu Ay': 30 };
+
+const dashboardOzet = useMemo(() => {
+  const bugun = new Date();
+  const gunSayisi = gunSayisiMap[donemFiltre] || 30;
+
+  const araliktakiler = (bitisOffset) => {
+    const bitis = new Date(bugun); bitis.setDate(bitis.getDate() - bitisOffset);
+    const baslangic = new Date(bitis); baslangic.setDate(baslangic.getDate() - gunSayisi);
+    return odemeler.filter(o => {
+      const t = new Date(o.tarih);
+      return t > baslangic && t <= bitis;
+    });
+  };
+
+  const hesapla = (liste) => {
+    const basarili = liste.filter(o => o.durum === 'Başarılı');
+    const hacim = basarili.reduce((t, o) => t + Number(o.tutar || 0), 0);
+    const oran = liste.length ? Math.round(basarili.length / liste.length * 100) : 0;
+    const ortalama = basarili.length ? Math.round(hacim / basarili.length) : 0;
+    return { hacim, oran, adet: liste.length, ortalama };
+  };
+
+  const guncel = hesapla(araliktakiler(0));
+  const onceki = hesapla(araliktakiler(gunSayisi));
+  const yuzde = (yeni, eski) => eski ? Math.round((yeni - eski) / eski * 100) : 0;
+
+  return {
+    hacim: guncel.hacim, hacimDegisim: yuzde(guncel.hacim, onceki.hacim),
+    oran: guncel.oran, oranDegisim: guncel.oran - onceki.oran,
+    adet: guncel.adet, adetDegisim: yuzde(guncel.adet, onceki.adet),
+    ortalama: guncel.ortalama, ortalamaDegisim: yuzde(guncel.ortalama, onceki.ortalama),
+  };
+}, [odemeler, donemFiltre]);
+
+
+
+const enAktifMusteriler = useMemo(() => {
+  const gruplar = {};
+  odemeler.filter(o => o.durum === 'Başarılı').forEach(o => {
+    gruplar[o.musteriId] = (gruplar[o.musteriId] || 0) + Number(o.tutar || 0);
+  });
+  return Object.entries(gruplar)
+    .map(([musteriId, tutar]) => ({ musteri: musteriler.find(m => m.id === Number(musteriId)), tutar }))
+    .filter(x => x.musteri)
+    .sort((a, b) => b.tutar - a.tutar)
+    .slice(0, 5);
+}, [odemeler, musteriler]);
 
   const raporMetrikleri = useMemo(() => {
     const bugun = new Date();
@@ -894,15 +948,44 @@ const googleEtkinlikSil = (eventId) => {
                   </button>
                 ))}
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
-                <div className="metric-card"><p className="stat-label">Toplam Ciro</p><h3>{formatPara(toplamCiro)}</h3></div>
-                <div className="metric-card"><p className="stat-label">Dönem Cirosu</p><h3>{formatPara(donemMetrikleri.ciro)}</h3></div>
-                <div className="metric-card"><p className="stat-label">Dönem Hakedişi</p><h3>{formatPara(donemMetrikleri.hakedis)}</h3></div>
-                <div className="metric-card"><p className="stat-label">Dönem İşlem Sayısı</p><h3>{donemMetrikleri.sayi}</h3></div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                {[
+                  { etiket: 'Toplam İşlem Hacmi', deger: formatPara(dashboardOzet.hacim), degisim: dashboardOzet.hacimDegisim },
+                  { etiket: 'Başarılı İşlem Oranı', deger: `%${dashboardOzet.oran}`, degisim: dashboardOzet.oranDegisim},
+                  { etiket: 'Toplam İşlem Adedi', deger: dashboardOzet.adet.toLocaleString('tr-TR'), degisim: dashboardOzet.adetDegisim },
+                  { etiket: 'Ortalama İşlem Tutarı', deger: formatPara(dashboardOzet.ortalama), degisim: dashboardOzet.ortalamaDegisim },
+                ].map(k => (
+                  <div key={k.etiket} className="metric-card">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <p className="stat-label">{k.etiket}</p>
+                      <span style={{ color: 'var(--primary)' }}>{k.ikon}</span>
+                    </div>
+                    <h3>{k.deger}</h3>
+                    <small style={{ color: k.degisim >= 0 ? '#16a34a' : '#dc2626', fontWeight: 600 }}>
+                      {k.degisim >= 0 ? '▲' : '▼'} %{Math.abs(k.degisim)} vs önceki dönem
+                    </small>
+                  </div>
+                ))}
               </div>
               <div style={{ marginTop: 16 }}>
                 <h4 style={{ margin: '0 0 8px' }}>Ciro (günlük)</h4>
                 <SimpleLineChart points={donemSeries} width={900} height={140} />
+              </div>
+            </div>
+
+            <div style={{ margin: '0 28px 16px' }}>
+
+              <div className="crm-card">
+                <h3>En Aktif Müşteriler</h3>
+                {enAktifMusteriler.length === 0 ? (
+                  <p className="bos-mesaj">Kayıt yok.</p>
+                ) : enAktifMusteriler.map(x => (
+                  <div key={x.musteri.id} className="task-item" style={{ cursor: 'pointer', justifyContent: 'flex-start', gap: 10 }} onClick={() => { setSeciliId(x.musteri.id); setAktifSekme('Müşteriler'); }}>
+                    <span className="mini-avatar" style={{ width: 28, height: 28, borderRadius: '50%', fontSize: 12, flexShrink: 0 }}>{x.musteri.sirketUnvani?.[0] || '?'}</span>
+                    <b style={{ fontSize: 13, flex: 1 }}>{x.musteri.sirketUnvani}</b>
+                    <b style={{ fontSize: 13 }}>{formatPara(x.tutar)}</b>
+                  </div>
+                ))}
               </div>
             </div>
 
