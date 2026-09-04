@@ -194,6 +194,11 @@ export default function App() {
   const [islemler, setIslemler] = useState([]);
   const [odemeler, setOdemeler] = useState([]);
   const [faturalar, setFaturalar] = useState([]);
+  const[belgeler, setBelgeler] = useState([]);
+  const [yeniBelgeTip, setYeniBelgeTip] = useState('Sözleşme');
+const [yeniBelgeAciklama, setYeniBelgeAciklama] = useState('');
+const [yeniBelgeTarih, setYeniBelgeTarih] = useState('');
+const [yeniBelgeDosya, setYeniBelgeDosya] = useState(null);
 
 const [googleToken, setGoogleToken] = useState(null);
 const [googleEtkinlikler, setGoogleEtkinlikler] = useState([]);
@@ -210,6 +215,16 @@ const [seciliGun, setSeciliGun] = useState(null);
   const [secilenDurum, setSecilenDurum] = useState(null);
   const [posFiltre, setPosFiltre] = useState('Tümü');
   const [islemAltSekme, setIslemAltSekme] = useState('Tümü');
+  const[sozlesmeAltSekme, setSozlesmeAltSekme] = useState('Sözleşme Listesi');
+  const [sanalPosAltSekme, setSanalPosAltSekme] = useState('Manuel POS');
+  const [odemeMusteriId, setOdemeMusteriId] = useState('');
+  const [odemeKartNo, setOdemeKartNo] = useState('');
+  const [odemeKartSahibi, setOdemeKartSahibi] = useState('');
+  const [odemeSonKullanma, setOdemeSonKullanma] = useState('');
+  const [odemeSiparisNo, setOdemeSiparisNo] = useState('');
+  const [odemeTutar, setOdemeTutar] = useState('');
+  const [odemeParaBirimi, setOdemeParaBirimi] = useState('TRY');
+  const [odemeIslemTipi, setOdemeIslemTipi] = useState('Satış');
   const [posArama, setPosArama] = useState('');
   const [eklemeAcikBanka, setEklemeAcikBanka] = useState(null);
   const[eklemeMusteriId, setEklemeMusteriId] = useState('');
@@ -300,7 +315,8 @@ const kullaniciSil = (id) => {
       fetch(`${API_BASE}/Musteri`).then(res => res.json()),
       fetch(`${API_BASE}/Odemeler`).then(res => res.json()),
       fetch(`${API_BASE}/Kullanicilar`).then(res => res.json()),
-      fetch(`${API_BASE}/Faturalar`).then(res => res.json())
+      fetch(`${API_BASE}/Faturalar`).then(res => res.json()),
+      
      
     ]).then(([islemlerVeri, musteriVeri, odemelerVeri, kullanicilarVeri, faturalarVeri]) => {
       setIslemler(islemlerVeri || []);
@@ -324,6 +340,8 @@ useEffect(() => {
     .catch(() => {});
 }, [kullanici]);
 
+
+
   // ── HESAPLANAN VERİLER & MEMO ──
 const etkinliklerTarihe = useMemo(() => {
   const harita = {};
@@ -346,6 +364,14 @@ const etkinliklerTarihe = useMemo(() => {
   const filtrelenmisMusteriler = useMemo(() => {
     return musteriler.filter(m => (m.sirketUnvani || '').toLowerCase().includes(arama.toLowerCase()));
   }, [musteriler, arama]);
+
+  useEffect(() => {
+  if (!seciliMusteri) { setBelgeler([]); return; }
+  fetch(`${API_BASE}/Belgeler/${seciliMusteri.id}`)
+    .then(res => res.json())
+    .then(veri => setBelgeler(veri || []))
+    .catch(err => console.error('Belgeler yüklenemedi:', err));
+}, [seciliMusteri?.id]);
 
   const aktifMusteriSayisi = useMemo(() => {
     const otuzGunOnce = new Date();
@@ -580,6 +606,38 @@ const islemPost = (body, onSuccess) => {
     .catch(err => console.error('İşlem eklenemedi:', err));
 };
 
+const odemeOlustur = () => {
+  if (!odemeMusteriId || !odemeKartNo || !odemeTutar) return;
+  const rakamlar = odemeKartNo.replace(/\s/g, '');
+  const maskelenmis = rakamlar.length >= 12
+    ? `${rakamlar.slice(0, 8)}****${rakamlar.slice(-4)}`
+    : rakamlar;
+
+  fetch(`${API_BASE}/Odemeler`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      musteriId: Number(odemeMusteriId),
+      banka: '', sanalPos: '',
+      siparisNo: odemeSiparisNo,
+      islemTipi: odemeIslemTipi,
+      tarih: new Date().toISOString().slice(0, 10),
+      tutar: Number(odemeTutar) || 0,
+      paraBirimi: odemeParaBirimi,
+      eposta: musteriler.find(m => m.id === Number(odemeMusteriId))?.email || '',
+      kart: maskelenmis,
+      kartBankasi: '', kartTipi: '', guvenli3D: 'Evet'
+    })
+  })
+    .then(res => res.json())
+    .then(yeniOdeme => {
+      setOdemeler(eski => [...eski, yeniOdeme]);
+      setOdemeKartNo(''); setOdemeKartSahibi(''); setOdemeSonKullanma('');
+      setOdemeSiparisNo(''); setOdemeTutar('');
+    })
+    .catch(err => console.error('Ödeme oluşturulamadı:', err));
+};
+
 const faturaEkle = (dto) => {
   fetch(`${API_BASE}/Faturalar`, {
     method: 'POST',
@@ -765,7 +823,7 @@ const kartSemasiSec = (musteri, banka, sema) => {
     fetch(`${API_BASE}/Musteri`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...yeniForm, asama: 'Teklif', durum: 'Görüşülen', ciro: '' })
+      body: JSON.stringify({ ...yeniForm, asama: 'Teklif', durum: 'Görüşülen', ciro: '', beklemeSebebi: '', kayipSebebi: '' })
     })
       .then(res => res.json())
       .then(yeniMusteri => {
@@ -786,11 +844,43 @@ const kartSemasiSec = (musteri, banka, sema) => {
     musteriPut(seciliId, { asama: yeniAsama, asamaTarihi }).catch(err => console.error('Aşama güncellenemedi:', err));
   };
 
+  const belgeYukle = (dosya) => {
+    if (!yeniBelgeDosya || !seciliMusteri) return;
+    const formData = new FormData();
+    formData.append('dosya', yeniBelgeDosya);
+    formData.append('musteriId', seciliMusteri.id);
+    formData.append('tip', yeniBelgeTip);
+    formData.append('aciklama' , yeniBelgeAciklama);
+    formData.append('yuklenmeTarihi' , yeniBelgeTarih);
+    formData.append('yukleyen', kullanici?.adSoyad || '');
+
+    fetch(`${API_BASE}/Belgeler`, {
+      method:'POST',
+      body: formData
+    })
+
+    .then(res => res.json())
+    .then(yeniBelge => {
+      setBelgeler(eski => [...eski, yeniBelge]);
+      setYeniBelgeAciklama('');
+      setYeniBelgeTarih('');
+      setYeniBelgeDosya(null);
+    })
+    .catch(err => console.error('Belge yüklenemedi:', err));
+  };
+
+  const belgeSil = (belgeId) => {
+    fetch(`${API_BASE}/Belgeler/${belgeId}`, { method: 'DELETE' })
+      .then(() => setBelgeler(eski => eski.filter(b => b.id !== belgeId)))
+      .catch(err => console.error('Belge silinemedi:', err));
+  };
+   
 
   const tarihEkle = () => {
     if (!yeniTarih || !yeniYorum.trim() || !seciliMusteri) return;
     islemPost({
-      musteriId: seciliMusteri.id, tip: 'Not', tarih: yeniTarih, not: yeniYorum
+      musteriId: seciliMusteri.id, tip: 'Not', tarih: yeniTarih, not: yeniYorum, tutar: 0,
+      satisTemsilcisi: kullanici?.adSoyad || '', odemeTuru: '', faturaNo: '', odemeKurulusu: '', odemeYontemi: ''
     }, () => { setYeniTarih(''); setYeniYorum(''); });
   };
 
@@ -874,9 +964,9 @@ const googleEtkinlikSil = (eventId) => {
       <aside className="crm-sidebar">
         <div className="crm-logo"><span className="logo-icon">T</span> Treps <small>CRM</small></div>
         <nav className="sidebar-menu">
-          {['Dashboard', 'Müşteriler', 'Takvim', 'Raporlar', 'İşlemler', 'Sanal POS', 'Kullanıcılar'].map(s => (
+          {['Dashboard', 'Müşteriler', 'Takvim', 'Raporlar', 'İşlemler', 'Sanal POS', 'Kullanıcılar' , 'Sözleşmeler'].map(s => (
             <React.Fragment key={s}>
-              <button className={`menu-btn ${aktifSekme === s ? 'active' : ''}`} onClick={() => { setAktifSekme(s); if (s === 'Takvim' && !googleToken) googleGirisYap(); if (s === 'İşlemler') setIslemAltSekme('Tümü'); }}>
+              <button className={`menu-btn ${aktifSekme === s ? 'active' : ''}`} onClick={() => { setAktifSekme(s); if (s === 'Takvim' && !googleToken) googleGirisYap(); if (s === 'İşlemler') setIslemAltSekme('Tümü'); if (s === 'Sözleşmeler') setSozlesmeAltSekme('Sözleşme Listesi'); }}>
                 {SEKME_IKONLARI[s]}
                 <span className="menu-label">{s}</span>
               </button>
@@ -893,6 +983,20 @@ const googleEtkinlikSil = (eventId) => {
                   ))}
                 </div>
               )}
+
+                 {s === 'Sözleşmeler' && aktifSekme === 'Sözleşmeler' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingLeft: 16 }}>
+              {['Sözleşme Listesi', 'Belgeler'].map(alt => (
+                <button
+                  key={alt}
+                  onClick={() => setSozlesmeAltSekme(alt)}
+                  style={{ textAlign: 'left', background: 'none', border: 'none', padding: '6px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer', color: sozlesmeAltSekme === alt ? 'var(--primary)' : 'var(--text-muted)', fontWeight: sozlesmeAltSekme === alt ? 700 : 400 }}
+                >
+                  {alt}
+                </button>
+              ))}
+            </div>
+          )}
             </React.Fragment>
           ))}
         </nav>
@@ -1210,13 +1314,10 @@ const googleEtkinlikSil = (eventId) => {
                     )}
 
                     <div className="value-row">
-                      <div><span>Ciro</span><b style={{ display: 'block', marginTop: 8 }}>{formatPara(musteriCirosu(seciliMusteri.id))}</b></div>
                       <div><span>Teklif Oranı</span><input className="form-input" style={{ marginTop: 4 }} placeholder="%" value={seciliMusteri.teklifOrani || ''} onChange={e => musteriGuncelle('teklifOrani', e.target.value)} /></div>
                       <div><span>Hakediş</span><b style={{ display: 'block', marginTop: 8 }}>{hakedisHesapla(musteriCirosu(seciliMusteri.id), seciliMusteri.teklifOrani)}</b></div>
                       <div><span>Satış Temsilcisi</span><b style={{ display: 'block', marginTop: 8 }}>{seciliMusteri.temsilci || '—'}</b></div>
                       <div className="value-row" style={{ marginTop: 12 }}>
-                        <div><span>Yönlendiren (İş Ortağı)</span><input className="form-input" style={{ marginTop: 4 }} placeholder="Örn. Ahmet Yılmaz" value={seciliMusteri.yonlendiren || ''} onChange={e => musteriGuncelle('yonlendiren', e.target.value)} /></div>
-                        <div><span>Gelir Payı Oranı</span><input className="form-input" style={{ marginTop: 4 }} placeholder="%" value={seciliMusteri.gelirPayiOrani || ''} onChange={e => musteriGuncelle('gelirPayiOrani', e.target.value)} /></div>
                       </div>
                     </div>
 
@@ -1225,6 +1326,15 @@ const googleEtkinlikSil = (eventId) => {
                     <Bilgi etiketi="Şehir" deger={seciliMusteri.sehir} />
                     <Bilgi etiketi="Semt" deger={seciliMusteri.semt} />
                     <Bilgi etiketi="Aşama Başlangıcı" deger={seciliMusteri.asamaTarihi} />
+
+                    {/* İŞ ORTAĞI & GELİR PAYI */}
+                    <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+                      <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 600 }}>İş Ortağı & Gelir Payı</span>
+                      <div className="value-row" style={{ marginTop: 8 }}>
+                        <div><span>Yönlendiren (İş Ortağı)</span><input className="form-input" style={{ marginTop: 4 }} placeholder="Örn. Ahmet Yılmaz" value={seciliMusteri.yonlendiren || ''} onChange={e => musteriGuncelle('yonlendiren', e.target.value)} /></div>
+                        <div><span>Gelir Payı Oranı</span><input className="form-input" style={{ marginTop: 4 }} placeholder="%" value={seciliMusteri.gelirPayiOrani || ''} onChange={e => musteriGuncelle('gelirPayiOrani', e.target.value)} /></div>
+                      </div>
+                    </div>
 
                     {/* ENTEGRASYON SEÇİMLERİ */}
                     <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
@@ -1262,6 +1372,7 @@ const googleEtkinlikSil = (eventId) => {
                         ))}
                       </div>
                     </div>
+
                   </article>
                 </section>
               </main>
@@ -1613,6 +1724,165 @@ const googleEtkinlikSil = (eventId) => {
   </div>
 )}
 
+{aktifSekme === 'Sözleşmeler' && (
+  <div className="crm-card" style={{ margin: '0 28px' }}>
+    <h3 style={{ margin: '0 0 14px' }}>Sözleşmeler</h3>
+
+    {sozlesmeAltSekme === 'Sözleşme Listesi' && (
+      musteriler.filter(m => m.asama === 'Sözleşme').length === 0 ? (
+        <p className="bos-mesaj">Sözleşme aşamasında müşteri yok.</p>
+      ) : (
+        <div className="tablo-wrap">
+          <table className="islem-tablo">
+            <thead>
+              <tr><th>Şirket</th><th>Temsilci</th><th>Aşama Başlangıcı</th><th></th></tr>
+            </thead>
+            <tbody>
+              {musteriler.filter(m => m.asama === 'Sözleşme').map(m => (
+                <tr key={m.id}>
+                  <td>{m.sirketUnvani}</td>
+                  <td>{m.temsilci}</td>
+                  <td>{m.asamaTarihi}</td>
+                  <td><button className="new-button" onClick={() => { setSeciliId(m.id); setSozlesmeAltSekme('Belgeler'); }}>Belgeleri Gör</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
+    )}
+
+    {sozlesmeAltSekme === 'Belgeler' && (
+      !seciliMusteri ? (
+        <p className="bos-mesaj">Önce Sözleşme Listesi'nden bir müşteri seçin.</p>
+      ) : (
+        <div>
+          <h4 style={{ margin: '0 0 12px' }}>{seciliMusteri.sirketUnvani}</h4>
+
+                    {/* AŞAMA BİLGİSİ */}
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
+            <div className="crm-card" style={{ flex: 1, minWidth: 160 }}>
+              <p className="stat-label">Sorumlu Kişi</p>
+              <h3>{seciliMusteri.temsilci || '—'}</h3>
+            </div>
+            <div className="crm-card" style={{ flex: 1, minWidth: 160 }}>
+              <p className="stat-label">Aşama</p>
+              <h3>{seciliMusteri.asama}</h3>
+            </div>
+            <div className="crm-card" style={{ flex: 1, minWidth: 160 }}>
+              <p className="stat-label">Tahmini Kapanış Tarihi</p>
+              <h3>{seciliMusteri.planTarihi || '—'}</h3>
+            </div>
+          </div>
+
+          {/* TÜRLERE GÖRE HIZLI ERİŞİM */}
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
+            <div className="crm-card" style={{ flex: 1, minWidth: 140 }}>
+              <p className="stat-label">Sözleşme</p>
+              <h3>{belgeler.filter(b => b.tip === 'Sözleşme').length} dosya</h3>
+            </div>
+            <div className="crm-card" style={{ flex: 1, minWidth: 140 }}>
+              <p className="stat-label">Teklif</p>
+              <h3>{belgeler.filter(b => b.tip === 'Teklif').length} dosya</h3>
+            </div>
+            <div className="crm-card" style={{ flex: 1, minWidth: 140 }}>
+              <p className="stat-label">E-posta</p>
+              <h3>{belgeler.filter(b => b.tip === 'E-posta').length} dosya</h3>
+            </div>
+          </div>
+
+          {/* SÖZLEŞME EVRAKLARI */}
+          <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+            <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 600 }}>Sözleşme Evrakları</span>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <input type="date" className="form-input" style={{ width: 150 }} value={yeniBelgeTarih} onChange={e => setYeniBelgeTarih(e.target.value)} />
+              <input className="form-input" style={{ flex: 1, minWidth: 150 }} placeholder="Açıklama" value={yeniBelgeAciklama} onChange={e => setYeniBelgeAciklama(e.target.value)} />
+              <label className="new-button" style={{ cursor: 'pointer' }}>
+  {yeniBelgeDosya ? yeniBelgeDosya.name : 'Dosya Seç'}
+  <input type="file" style={{ display: 'none' }} onChange={e => { setYeniBelgeDosya(e.target.files[0]); setYeniBelgeTip('Sözleşme'); }} />
+</label>
+              <button onClick={belgeYukle} className="new-button">Yükle</button>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              {belgeler.filter(b => b.tip === 'Sözleşme').length === 0 ? (
+                <p className="bos-mesaj">Henüz sözleşme evrakı yüklenmedi.</p>
+              ) : (
+                belgeler.filter(b => b.tip === 'Sözleşme').map(b => (
+                  <div key={b.id} className="task-item" style={{ justifyContent: 'space-between' }}>
+                    <span>
+                      <a href={`${API_BASE}/BelgeDosyalari/${b.dosyaYolu}`} target="_blank" rel="noreferrer" style={{ color: 'var(--primary)', fontWeight: 600 }}>{b.dosyaAdi}</a>
+                      {' '}<small style={{ color: 'var(--text-muted)' }}>({b.yuklenmeTarihi} · {Math.round(b.boyut / 1024)} KB · {b.yukleyen})</small>
+                    </span>
+                    <button onClick={() => belgeSil(b.id)} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12 }}>Sil</button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* TEKLİF EVRAĞI */}
+          <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+            <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 600 }}>Teklif Evrağı</span>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <input type="date" className="form-input" style={{ width: 150 }} value={yeniBelgeTarih} onChange={e => setYeniBelgeTarih(e.target.value)} />
+              <input className="form-input" style={{ flex: 1, minWidth: 150 }} placeholder="Açıklama" value={yeniBelgeAciklama} onChange={e => setYeniBelgeAciklama(e.target.value)} />
+              <label className="new-button" style={{ cursor: 'pointer' }}>
+            {yeniBelgeDosya ? yeniBelgeDosya.name : 'Dosya Seç'}
+            <input type="file" style={{ display: 'none' }} onChange={e => { setYeniBelgeDosya(e.target.files[0]); setYeniBelgeTip('Teklif'); }} />
+          </label>
+              <button onClick={belgeYukle} className="new-button">Yükle</button>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              {belgeler.filter(b => b.tip === 'Teklif').length === 0 ? (
+                <p className="bos-mesaj">Henüz teklif evrağı yüklenmedi.</p>
+              ) : (
+                belgeler.filter(b => b.tip === 'Teklif').map(b => (
+                  <div key={b.id} className="task-item" style={{ justifyContent: 'space-between' }}>
+                    <span>
+                      <a href={`${API_BASE}/BelgeDosyalari/${b.dosyaYolu}`} target="_blank" rel="noreferrer" style={{ color: 'var(--primary)', fontWeight: 600 }}>{b.dosyaAdi}</a>
+                      {' '}<small style={{ color: 'var(--text-muted)' }}>({b.yuklenmeTarihi} · {Math.round(b.boyut / 1024)} KB · {b.yukleyen})</small>
+                    </span>
+                    <button onClick={() => belgeSil(b.id)} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12 }}>Sil</button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* E-POSTA EVRAĞI */}
+          <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+            <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 600 }}>E-posta Evrağı</span>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <input type="date" className="form-input" style={{ width: 150 }} value={yeniBelgeTarih} onChange={e => setYeniBelgeTarih(e.target.value)} />
+              <input className="form-input" style={{ flex: 1, minWidth: 150 }} placeholder="Açıklama" value={yeniBelgeAciklama} onChange={e => setYeniBelgeAciklama(e.target.value)} />
+              <label className="new-button" style={{ cursor: 'pointer' }}>
+                  {yeniBelgeDosya ? yeniBelgeDosya.name : 'Dosya Seç'}
+                  <input type="file" style={{ display: 'none' }} onChange={e => { setYeniBelgeDosya(e.target.files[0]); setYeniBelgeTip('E-posta'); }} />
+                </label>
+              <button onClick={belgeYukle} className="new-button">Yükle</button>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              {belgeler.filter(b => b.tip === 'E-posta').length === 0 ? (
+                <p className="bos-mesaj">Henüz e-posta evrağı yüklenmedi.</p>
+              ) : (
+                belgeler.filter(b => b.tip === 'E-posta').map(b => (
+                  <div key={b.id} className="task-item" style={{ justifyContent: 'space-between' }}>
+                    <span>
+                      <a href={`${API_BASE}/BelgeDosyalari/${b.dosyaYolu}`} target="_blank" rel="noreferrer" style={{ color: 'var(--primary)', fontWeight: 600 }}>{b.dosyaAdi}</a>
+                      {' '}<small style={{ color: 'var(--text-muted)' }}>({b.yuklenmeTarihi} · {Math.round(b.boyut / 1024)} KB · {b.yukleyen})</small>
+                    </span>
+                    <button onClick={() => belgeSil(b.id)} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12 }}>Sil</button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )
+    )}
+  </div>
+)}
+
 {aktifSekme === 'Sanal POS' && (
   <div style={{ padding: '0 28px' }}>
     <div style={{ background: 'var(--primary-light)', borderRadius: 12, padding: '16px 20px', marginBottom: 16 }}>
@@ -1631,6 +1901,19 @@ const googleEtkinlikSil = (eventId) => {
       </div>
     </div>
 
+    <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+  {['Genel Bakış', 'Manuel POS', 'Ödeme Kayıtları', 'Tahsilatlar', 'İadeler', 'Mutabakatlar', 'Raporlar', 'Ayarlar'].map(t => (
+    <button
+      key={t}
+      onClick={() => setSanalPosAltSekme(t)}
+      style={{ padding: '6px 14px', borderRadius: 20, border: '1px solid var(--border)', background: sanalPosAltSekme === t ? 'var(--primary)' : 'transparent', color: sanalPosAltSekme === t ? '#fff' : 'inherit', cursor: 'pointer', fontSize: 13 }}
+    >
+      {t}
+    </button>
+  ))}
+</div>
+
+    {(sanalPosAltSekme === 'Genel Bakış' || sanalPosAltSekme === '') && (
     <div className="pos-grid">
       {BANKALAR.filter(b => b.toLowerCase().includes(posArama.toLowerCase())).map(b => {
         const musteriListesi = musteriler
@@ -1695,7 +1978,79 @@ const googleEtkinlikSil = (eventId) => {
         );
       })}
     </div>
+    )}
 
+    {sanalPosAltSekme === 'Manuel POS' && (
+      <div>
+        <div className="crm-card" style={{ marginBottom: 16 }}>
+          <h4 style={{ margin: '0 0 12px' }}>Kart Bilgileri</h4>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            <select className="form-input" style={{ flex: 1, minWidth: 160 }} value={odemeMusteriId} onChange={e => setOdemeMusteriId(e.target.value)}>
+              <option value="">Müşteri seç</option>
+              {musteriler.map(m => <option key={m.id} value={m.id}>{m.sirketUnvani}</option>)}
+            </select>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            <input className="form-input" style={{ flex: 1, minWidth: 160 }} placeholder="Kart Numarası" value={odemeKartNo} onChange={e => setOdemeKartNo(e.target.value)} />
+            <input className="form-input" style={{ flex: 1, minWidth: 160 }} placeholder="Kart Sahibi" value={odemeKartSahibi} onChange={e => setOdemeKartSahibi(e.target.value)} />
+            <input className="form-input" style={{ width: 120 }} placeholder="AA/YY" value={odemeSonKullanma} onChange={e => setOdemeSonKullanma(e.target.value)} />
+          </div>
+        </div>
+
+        <div className="crm-card" style={{ marginBottom: 16 }}>
+          <h4 style={{ margin: '0 0 12px' }}>İşlem Bilgileri</h4>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            <input className="form-input" style={{ flex: 1, minWidth: 160 }} placeholder="Sipariş Numarası" value={odemeSiparisNo} onChange={e => setOdemeSiparisNo(e.target.value)} />
+            <input type="number" className="form-input" style={{ width: 140 }} placeholder="Tutar" value={odemeTutar} onChange={e => setOdemeTutar(e.target.value)} />
+            <select className="form-input" style={{ width: 100 }} value={odemeParaBirimi} onChange={e => setOdemeParaBirimi(e.target.value)}>
+              <option value="TRY">TRY</option>
+              <option value="USD">USD</option>
+              <option value="EUR">EUR</option>
+            </select>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {['Satış', 'Ön Provizyon'].map(t => (
+              <button
+                key={t}
+                onClick={() => setOdemeIslemTipi(t)}
+                style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid var(--border)', background: odemeIslemTipi === t ? 'var(--primary)' : 'transparent', color: odemeIslemTipi === t ? '#fff' : 'inherit', cursor: 'pointer', fontSize: 13 }}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <button className="new-button" onClick={odemeOlustur}>Ödemeyi Tamamla</button>
+
+        <div className="crm-card" style={{ marginTop: 16 }}>
+          <h4 style={{ margin: '0 0 12px' }}>Son Ödeme Kayıtları</h4>
+          {odemeler.length === 0 ? (
+            <p className="bos-mesaj">Henüz ödeme kaydı yok.</p>
+          ) : (
+            <div className="tablo-wrap">
+              <table className="islem-tablo">
+                <thead>
+                  <tr><th>Tarih</th><th>Sipariş No</th><th>İşlem Tipi</th><th>Tutar</th><th>Kart</th><th>Durum</th></tr>
+                </thead>
+                <tbody>
+                  {odemeler.slice().reverse().map(o => (
+                    <tr key={o.id}>
+                      <td>{o.tarih}</td>
+                      <td>{o.siparisNo}</td>
+                      <td>{o.islemTipi}</td>
+                      <td>{formatPara(o.tutar)}</td>
+                      <td>{o.kart}</td>
+                      <td><span className={`islem-tip-rozet islem-tip-${o.durum}`}>{o.durum}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    )}
 
   </div>
 )}

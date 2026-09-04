@@ -1,13 +1,10 @@
 using backend.Dtos;
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
 
 
 
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("VeriTabani")));
 
 builder.Services.AddCors(Options =>
 {
@@ -22,20 +19,28 @@ builder.Services.AddCors(Options =>
 
 var app = builder.Build();
 app.UseCors("FrontendPolicy");
-
-
-app.MapGet("/Musteri", async (AppDbContext db) => await db.Musteriler.ToListAsync());
-
-app.MapGet("/Musteri/{id}", async (int id, AppDbContext db) =>
+Directory.CreateDirectory("Belgeler");
+app.UseStaticFiles(new StaticFileOptions
 {
-    var musteri = await db.Musteriler.FindAsync(id);
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(Path.Combine(builder.Environment.ContentRootPath, "Belgeler")),
+    RequestPath = "/BelgeDosyalari"
+});
+
+List<MusteriDto> Musteriler = new();
+int sonrakiMusteriId = 1;
+
+app.MapGet("/Musteri", () => Musteriler);
+
+app.MapGet("/Musteri/{id}", (int id) =>
+{
+    var musteri = Musteriler.FirstOrDefault(m => m.Id == id);
     return musteri is null ? Results.NotFound() : Results.Ok(musteri);
 });
 
-app.MapPost("/Musteri", async (CreateMusteriDto yeniMusteriDto, AppDbContext db) =>
+app.MapPost("/Musteri", (CreateMusteriDto yeniMusteriDto) =>
 {
     MusteriDto musteri = new(
-        0,
+        sonrakiMusteriId++,
         yeniMusteriDto.SirketUnvani,
         yeniMusteriDto.MarkaAdi,
         yeniMusteriDto.Domain,
@@ -60,16 +65,15 @@ app.MapPost("/Musteri", async (CreateMusteriDto yeniMusteriDto, AppDbContext db)
         yeniMusteriDto.Semt
     );
 
-    db.Musteriler.Add(musteri);
-    await db.SaveChangesAsync();
+    Musteriler.Add(musteri);
 
     return Results.Created($"/Musteri/{musteri.Id}", musteri);
 });
 
-app.MapPut("/Musteri/{id}", async (int id, UpdateMusteriDto updateMusteriDto, AppDbContext db) =>
+app.MapPut("/Musteri/{id}", (int id, UpdateMusteriDto updateMusteriDto) =>
 {
-    var mevcut = await db.Musteriler.FindAsync(id);
-    if (mevcut is null) return Results.NotFound();
+    var index = Musteriler.FindIndex(m => m.Id == id);
+    if (index == -1) return Results.NotFound();
 
     MusteriDto guncellenmis = new(
         id,
@@ -97,38 +101,32 @@ app.MapPut("/Musteri/{id}", async (int id, UpdateMusteriDto updateMusteriDto, Ap
         updateMusteriDto.Semt
     );
 
-    db.Entry(mevcut).CurrentValues.SetValues(guncellenmis);
-    await db.SaveChangesAsync();
+    Musteriler[index] = guncellenmis;
 
     return Results.NoContent();
 });
 
-app.MapDelete("/Musteri/{id}", async (int id, AppDbContext db) =>
+app.MapDelete("/Musteri/{id}", (int id) =>
 {
-    var musteri = await db.Musteriler.FindAsync(id);
-    if (musteri is not null)
-    {
-        db.Musteriler.Remove(musteri);
-        await db.SaveChangesAsync();
-    }
+    Musteriler.RemoveAll(m => m.Id == id);
     return Results.NoContent();
 });
 
 
 
 
-app.MapGet("/Islemler",async (AppDbContext db) => await db.Islemler.ToListAsync());
+List<IslemDto> Islemler = new();
+int sonrakiIslemId = 1;
 
-app.MapGet("/Islemler/{musteriId}", async (int musteriId, AppDbContext db) =>
-{
-    List<IslemDto> musteriIslemleri = await db.Islemler.Where(i => i.MusteriId == musteriId).ToListAsync();
-    return musteriIslemleri;
-});
+app.MapGet("/Islemler", () => Islemler);
 
-app.MapPost("/Islemler", async (CreateIslemDto yeniIslemDto, AppDbContext db) =>
+app.MapGet("/Islemler/{musteriId}", (int musteriId) =>
+    Islemler.Where(i => i.MusteriId == musteriId).ToList());
+
+app.MapPost("/Islemler", (CreateIslemDto yeniIslemDto) =>
 {
     IslemDto islem = new(
-       0,
+        sonrakiIslemId++,
         yeniIslemDto.MusteriId,
         yeniIslemDto.Tip,
         yeniIslemDto.Tarih,
@@ -141,27 +139,36 @@ app.MapPost("/Islemler", async (CreateIslemDto yeniIslemDto, AppDbContext db) =>
         yeniIslemDto.Tutar
     );
 
-    db.Islemler.Add(islem);
-    await db.SaveChangesAsync();
+    Islemler.Add(islem);
 
     return Results.Created($"/Islemler/{islem.Id}", islem);
 });
 
-app.MapDelete ("/Islemler/{id}" , async (int id, AppDbContext db) =>
+app.MapDelete("/Islemler/{id}", (int id) =>
 {
-    var islem = await db.Islemler.FindAsync(id);
-    if (islem is not null)
-    {
-        db.Islemler.Remove(islem);
-        await db.SaveChangesAsync();
-    }
+    Islemler.RemoveAll(i => i.Id == id);
     return Results.NoContent();
 });
 
 
-app.MapGet("/Odemeler" , async (AppDbContext db) => await db.Odemeler.ToListAsync());
-app.MapGet("/Odemeler/{musteriId}" , async (int musteriId, AppDbContext db) =>
-    await db.Odemeler.Where(o => o.MusteriId == musteriId).ToListAsync());
+List<OdemeDto> Odemeler = new();
+int sonrakiOdemeId = 1;
+
+app.MapGet("/Odemeler", () => Odemeler);
+app.MapGet("/Odemeler/{musteriId}", (int musteriId) =>
+    Odemeler.Where(o => o.MusteriId == musteriId).ToList());
+
+app.MapPost("/Odemeler", (CreateOdemeDto dto) =>
+{
+    var kayit = new OdemeDto(
+        sonrakiOdemeId++, dto.MusteriId, dto.Banka, dto.SanalPos, dto.SiparisNo,
+        $"TRX-{DateTime.Now:yyyyMMddHHmmss}", dto.IslemTipi, "Başarılı", dto.Tarih,
+        dto.Tutar, dto.ParaBirimi, dto.Eposta, dto.Kart, dto.KartBankasi, dto.KartTipi,
+        dto.Guvenli3D, "Onaylandı"
+    );
+    Odemeler.Add(kayit);
+    return Results.Created($"/Odemeler/{kayit.Id}", kayit);
+});
 
 Dictionary<string, int> Oturumlar = new();
 const string GOOGLE_TOKEN_DOSYASI = "google-tokens.json";
@@ -169,23 +176,20 @@ Dictionary<int, string> GoogleRefreshTokenlar = File.Exists(GOOGLE_TOKEN_DOSYASI
     ? JsonSerializer.Deserialize<Dictionary<int, string>>(File.ReadAllText(GOOGLE_TOKEN_DOSYASI)) ?? new()
     : new();
 
-using (var scope = app.Services.CreateScope())
+List<KullaniciKayit> Kullanicilar = new()
 {
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    if (!db.Kullanicilar.Any())
-    {
-        db.Kullanicilar.Add(new KullaniciKayit { KullaniciAdi = "ilayda", AdSoyad = "İlayda Budak", SifreHash = BCrypt.Net.BCrypt.HashPassword("000000"), KullaniciTipi = "Portal", Yetki = "Yönetici", Durum = "Aktif" });
-        db.SaveChanges();
-    }
-}
+    new KullaniciKayit { Id = 1, KullaniciAdi = "ilayda", AdSoyad = "İlayda Budak", SifreHash = BCrypt.Net.BCrypt.HashPassword("000000"), KullaniciTipi = "Portal", Yetki = "Yönetici", Durum = "Aktif" }
+};
+int sonrakiKullaniciId = 2;
 
-app.MapGet("/Kullanicilar", async (AppDbContext db) =>
-    await db.Kullanicilar.Select(k => new KullaniciDto(k.Id, k.KullaniciAdi, k.AdSoyad, k.KullaniciTipi, k.Yetki, k.Durum)).ToListAsync());
+app.MapGet("/Kullanicilar", () =>
+    Kullanicilar.Select(k => new KullaniciDto(k.Id, k.KullaniciAdi, k.AdSoyad, k.KullaniciTipi, k.Yetki, k.Durum)).ToList());
 
-app.MapPost("/Kullanicilar", async (CreateKullaniciDto yeniKullaniciDto, AppDbContext db) =>
+app.MapPost("/Kullanicilar", (CreateKullaniciDto yeniKullaniciDto) =>
 {
     var kayit = new KullaniciKayit
     {
+        Id = sonrakiKullaniciId++,
         KullaniciAdi = yeniKullaniciDto.KullaniciAdi,
         AdSoyad = yeniKullaniciDto.AdSoyad,
         SifreHash = BCrypt.Net.BCrypt.HashPassword(yeniKullaniciDto.Sifre),
@@ -193,15 +197,14 @@ app.MapPost("/Kullanicilar", async (CreateKullaniciDto yeniKullaniciDto, AppDbCo
         Yetki = yeniKullaniciDto.Yetki,
         Durum = "Aktif"
     };
-    db.Kullanicilar.Add(kayit);
-    await db.SaveChangesAsync();
+    Kullanicilar.Add(kayit);
     var dto = new KullaniciDto(kayit.Id, kayit.KullaniciAdi, kayit.AdSoyad, kayit.KullaniciTipi, kayit.Yetki, kayit.Durum);
     return Results.Created($"/Kullanicilar/{kayit.Id}", dto);
 });
 
-app.MapPut("/Kullanicilar/{id}", async (int id, UpdateKullaniciDto updateDto, AppDbContext db) =>
+app.MapPut("/Kullanicilar/{id}", (int id, UpdateKullaniciDto updateDto) =>
 {
-    var kayit = await db.Kullanicilar.FindAsync(id);
+    var kayit = Kullanicilar.FirstOrDefault(k => k.Id == id);
     if (kayit is null) return Results.NotFound();
 
     kayit.KullaniciAdi = updateDto.KullaniciAdi;
@@ -213,24 +216,18 @@ app.MapPut("/Kullanicilar/{id}", async (int id, UpdateKullaniciDto updateDto, Ap
     {
         kayit.SifreHash = BCrypt.Net.BCrypt.HashPassword(updateDto.Sifre);
     }
-    await db.SaveChangesAsync();
     return Results.NoContent();
 });
 
-app.MapDelete("/Kullanicilar/{id}", async (int id, AppDbContext db) =>
+app.MapDelete("/Kullanicilar/{id}", (int id) =>
 {
-    var kayit = await db.Kullanicilar.FindAsync(id);
-    if (kayit is not null)
-    {
-        db.Kullanicilar.Remove(kayit);
-        await db.SaveChangesAsync();
-    }
+    Kullanicilar.RemoveAll(k => k.Id == id);
     return Results.NoContent();
 });
 
-app.MapPost("/Login", async (LoginDto loginDto, AppDbContext db) =>
+app.MapPost("/Login", (LoginDto loginDto) =>
 {
-    var kayit = await db.Kullanicilar.FirstOrDefaultAsync(k => k.KullaniciAdi == loginDto.KullaniciAdi);
+    var kayit = Kullanicilar.FirstOrDefault(k => k.KullaniciAdi == loginDto.KullaniciAdi);
 
     if (kayit is null || kayit.Durum != "Aktif" || !BCrypt.Net.BCrypt.Verify(loginDto.Sifre, kayit.SifreHash))
     {
@@ -294,35 +291,77 @@ app.MapGet("/GoogleAuth/Token/{kullaniciId}", async (int kullaniciId) =>
     return Results.Ok(new { accessToken });
 });
 
-app.MapGet("/Faturalar", async (AppDbContext db) => await db.Faturalar.ToListAsync());
+List<FaturaDto> Faturalar = new();
+int sonrakiFaturaId = 1;
 
-app.MapPost("/Faturalar", async (CreateFaturaDto dto, AppDbContext db) =>
+app.MapGet("/Faturalar", () => Faturalar);
+
+app.MapPost("/Faturalar", (CreateFaturaDto dto) =>
 {
-    var kayit = new FaturaDto(0, dto.MusteriId, dto.FaturaNo, dto.Tarih, dto.Tutar, "0", "0", dto.ValorTarihi, dto.Notlar, "Onaylanmadı");
-    db.Faturalar.Add(kayit);
-    await db.SaveChangesAsync();
+    var kayit = new FaturaDto(sonrakiFaturaId++, dto.MusteriId, dto.FaturaNo, dto.Tarih, dto.Tutar, "0", "0", dto.ValorTarihi, dto.Notlar, "Onaylanmadı");
+    Faturalar.Add(kayit);
     return Results.Created($"/Faturalar/{kayit.Id}", kayit);
 });
 
-app.MapPut("/Faturalar/{id}", async (int id, UpdateFaturaDto dto, AppDbContext db) =>
+app.MapPut("/Faturalar/{id}", (int id, UpdateFaturaDto dto) =>
 {
-    var kayit = await db.Faturalar.FindAsync(id);
-    if (kayit is null) return Results.NotFound();
+    var index = Faturalar.FindIndex(f => f.Id == id);
+    if (index == -1) return Results.NotFound();
 
-    var guncellenmis = kayit with { Onaylanan = dto.Onaylanan, Odenen = dto.Odenen, Durum = dto.Durum };
-    db.Entry(kayit).CurrentValues.SetValues(guncellenmis);
-    await db.SaveChangesAsync();
+    var guncellenmis = Faturalar[index] with { Onaylanan = dto.Onaylanan, Odenen = dto.Odenen, Durum = dto.Durum };
+    Faturalar[index] = guncellenmis;
     return Results.NoContent();
 });
 
-app.MapDelete("/Faturalar/{id}", async (int id, AppDbContext db) =>
+app.MapDelete("/Faturalar/{id}", (int id) =>
 {
-    var kayit = await db.Faturalar.FindAsync(id);
-    if (kayit is not null)
+    Faturalar.RemoveAll(f => f.Id == id);
+    return Results.NoContent();
+});
+
+List<BelgeDto> Belgeler = new();
+int sonrakiBelgeId = 1;
+
+app.MapPost("/Belgeler", async (HttpRequest request) =>
+{
+    var form = await request.ReadFormAsync();
+    var dosya = form.Files["dosya"];
+    if (dosya is null) return Results.BadRequest("Dosya seçilmedi.");
+    var musteriId = int.Parse(form["musteriId"]!);
+    var tip = form["tip"].ToString();
+    var aciklama = form["aciklama"].ToString();
+    var yuklenmeTarihi = form["yuklenmeTarihi"].ToString();
+    var yukleyen = form["yukleyen"].ToString();
+
+    var klasor = Path.Combine("Belgeler", musteriId.ToString());
+    Directory.CreateDirectory(klasor);
+    var dosyaAdi = $"{Guid.NewGuid()}_{dosya.FileName}";
+    var diskYolu = Path.Combine(klasor, dosyaAdi);
+
+    using (var stream = new FileStream(diskYolu, FileMode.Create))
     {
-        db.Faturalar.Remove(kayit);
-        await db.SaveChangesAsync();
+        await dosya.CopyToAsync(stream);
     }
+    var kayit = new BelgeDto(sonrakiBelgeId++, musteriId, dosya.FileName, tip, aciklama, yuklenmeTarihi, yukleyen, dosya.Length, $"{musteriId}/{dosyaAdi}");
+    Belgeler.Add(kayit);
+
+    return Results.Created($"/Belgeler/{kayit.Id}", kayit);
+});
+
+app.MapGet("/Belgeler/{musteriId}", (int musteriId) =>
+    Belgeler.Where(b => b.MusteriId == musteriId).ToList());
+
+app.MapDelete("/Belgeler/{id}", (int id) =>
+{
+    var belge = Belgeler.FirstOrDefault(b => b.Id == id);
+    if (belge is null) return Results.NotFound();
+
+    var diskYolu = Path.Combine("Belgeler", belge.DosyaYolu);
+    if (File.Exists(diskYolu))
+    {
+        File.Delete(diskYolu);
+    }
+    Belgeler.RemoveAll(b => b.Id == id);
     return Results.NoContent();
 });
 
